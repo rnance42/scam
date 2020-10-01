@@ -13,17 +13,17 @@
 (define usage-string
   "Usage:\n
     scam [-i]                  Enter interactive mode
+    scam FILE ARGS...          Compile and execute FILE
     scam -o FILE [OPTS] FILE   Build an executable from SRC
-    scam -e EXPR               Eval and print value of expression
-    scam [-x] FILE ARGS...     Compile and execute FILE
+    scam -e EXPR               Print the value of expression EXPR
     scam -v / --version        Show version
-    scam -h                    Show this message
+    scam -h / --help           Show this message
 
 Options:
 
-  --quiet         Do not display progress messages
-  --obj-dir DIR   Specify directory for intermediate files
-  --              Stop processing options
+  --quiet           Do not display progress messages
+  --build-dir DIR   Specify directory for intermediate files
+  --                Stop processing options
 ")
 
 ;; The following are options are subject to change:
@@ -33,77 +33,72 @@ Options:
 
 
 (define (perror fmt ...values)
-  (fprintf 2 (concat "scam: " fmt "\n") values)
+  (vfprintf 2 (.. "scam: " fmt "\n") values)
   ;; this value can be returned from main to indicate error
   1)
 
 
-(define `version "1.5x")
-
-
-(define (get-obj-dir obj-dir out-file)
-  (if obj-dir
-      (patsubst "%//" "%/" (concat obj-dir "/"))  ;; must end with "/"
-      (if out-file
-          (dir out-file)
-          ".scam/")))
+(define `version "2.1.0")
 
 
 (define (main argv)
   (define `opt-names
-    "-o= -e= -v --version -h -x -i --quiet --obj-dir= --boot")
+    "-o= -e= -v --version -h --help -i --quiet --build-dir= --boot")
 
   (let ((omap (getopts argv opt-names)))
     (define `(opt name)
       (dict-get name omap))
 
-    (define `names (opt "*"))      ; non-option arguments
-    (define `errors (opt "!"))     ; errors encountered by getopts
+    (define `[file-name ...other-names] (opt "*"))
+    (define `errors (opt "!"))
+    (define `is-quiet (opt "quiet"))
 
     ;; These globals govern compilation
-    (set *is-quiet* (opt "quiet"))
     (set *is-boot* (opt "boot"))
-    (set *obj-dir* (get-obj-dir (last (opt "obj-dir")) (last (opt "o"))))
 
-    (cond
-     (errors
-      (for e errors
-           (case e
-             ((MissingArg opt) (perror "'%s' is missing an argument" opt))
-             ((BadOption arg) (perror "'%s' is not a recognized option" arg))
-             (else (perror "[internal error]"))))
-      (perror "try 'scam -h' for help"))
+    (define build-dir
+      (or (last (opt "build-dir"))
+          (addsuffix ".scam/" (dir (last (opt "o"))))
+          (native-var "SCAM_BUILD_DIR")
+          (.. (native-var "HOME") "/.scam/")))
 
-     ((opt "h")
-      (print usage-string))
+    (or
 
-     ((opt "o")
-      (if (word 2 names)
-          (perror "too many input files were given with `-o`")
-          (build-program (first names) (last (opt "o")))))
+     (when errors
+       (for (e errors)
+         (case e
+           ((MissingArg opt) (perror "`%s` is missing an argument" opt))
+           ((BadOption arg) (perror "`%s` is not a recognized option" arg))
+           (else (perror "[internal error]"))))
+       (perror "try `scam -h` for help"))
 
-     ((opt "e")
-      ;; eval with the REPL's initial env & output formatting
-      (for expr (opt "e")
-           (if (repl-rep expr)
-               (error "Error")))
-      nil)
+     (vec-or
+      (for (expr (opt "e"))
+        (if (repl-ep expr build-dir is-quiet)
+            1)))
 
-     ((or (opt "v")
-          (opt "version"))
-      (print "SCAM version " version))
+     (when (or (opt "h")
+               (opt "help"))
+       (print usage-string)
+       0)
 
-     ((opt "x")
-      (if (not names)
-          (perror "no FILE was given with '-x'")
-          (run-program (first names) (rest names))))
+     (when (opt "o")
+       (if other-names
+           (perror "too many input files were given with `-o`")
+           (or (build-program file-name (last (opt "o")) build-dir is-quiet)
+               0)))
 
-     ((not names) ;; handles valid `-i` case as well
-      (print "SCAM v" version " interactive mode. Type '?' for help.")
-      (repl))
+     (when (or (opt "v")
+               (opt "version"))
+       (print "SCAM version " version)
+       0)
 
-     ((opt "i")
-      (perror "extraneous arguments were provided with -i"))
+     (when file-name
+       (or (run-program file-name other-names build-dir is-quiet)
+           0))
 
-     (else
-      (run-program (first names) (rest names))))))
+     (when (or (opt "i")
+               (not (or file-name (opt "e"))))
+      (print "SCAM v" version " interactive mode. Type `?` for help.")
+      (repl build-dir)
+      0))))

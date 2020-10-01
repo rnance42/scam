@@ -10,7 +10,7 @@
 ;; crumbs
 
 (expect { code: "a b c", errors: [1 2], x: ["!=%"] }
-        (crumb-extract (concat "a b"
+        (crumb-extract (.. "a b"
                                (crumb "errors" 1)
                                " "
                                (crumb "errors" 2)
@@ -22,13 +22,6 @@
 (expect [msg] (dict-get "x" (crumb-extract (crumb "x" msg))))
 (expect [msg] (dict-get "x" (crumb-extract
                              (c1-Lambda (protect-trim (crumb "x" msg))))))
-
-
-;; make-list
-
-(expect "x" (make-list 1 1 "x"))
-(expect "" (make-list 2 1 "x"))
-(expect "xxxx" (make-list 1 4 "x"))
 
 
 ;; IString: literal values
@@ -66,6 +59,11 @@
 (expect "$(info a)"
         (c1 (IBuiltin "info" [ (IString "a") ])))
 
+;; IFor
+
+(expect "$(foreach ;,1,2)"
+        (c1 (IFor ";" (IString 1) (IString 2))))
+
 ;; and & or:  protect against trimming
 
 (expect "$(or $(if ,, a ))"
@@ -84,29 +82,51 @@
 
 ;; many args
 (expect "$(call fn,1,2,3,4,5,6,7,8,9 a b!0)"
-        (c1 (ICall "fn" (for s "1 2 3 4 5 6 7 8 9 a b!0" (IString s)))))
+        (c1 (ICall "fn" (for (s "1 2 3 4 5 6 7 8 9 a b!0") (IString s)))))
 
 (expect "$(call fn,1,2,3,4,5,6,7,8,9 $] $(call ^d,$v))"
-        (c1 (ICall "fn" (conj (for s "1 2 3 4 5 6 7 8 9 )" (IString s))
+        (c1 (ICall "fn" (conj (for (s "1 2 3 4 5 6 7 8 9 )") (IString s))
                              (IVar "v")))))
 
-;; Local: value of local variable
+;; i-8
 
-(expect "$3"                   (c1-Local 3 0))
-(expect "$-(call ^E,$-3)"      (c1-Local 3 1))
-(expect "$--(call ^E,$--3,`)"  (c1-Local 3 2))
+(expect 0 (i-8 8))
+(expect 1 (i-8 9))
+(expect 2 (i-8 10))
+(expect 82 (i-8 90))
+
+;; IArg: value of local variable
+
+(expect (c1-IArg 3 ".") "$3")
+(expect (c1-IArg 3 "..") "$-(call ^E,$-3)")
+(expect (c1-IArg 3 "...") "$--(call ^E,$--3,`)")
+
+(expect (c1-IArg 9 ".")   "$(call ^n,1,$9)")
+(expect (c1-IArg 9 "..")  "$-(call ^E,$-(call ^n,1,$-9))")
+(expect (c1-IArg 9 "...") "$--(call ^E,$--(call ^n,1,$--9),`)")
+
+(expect (c1-IArg "3+" ".")  "$(foreach N,3,$(^v))")
+(expect (c1-IArg "3+" "...")  "$--(call ^E,$--(foreach N,3,$--(^v)),`)")
+(expect (c1-IArg "9+" ".")  "$9")
+(expect (c1-IArg "10+" ".")  "$(wordlist 2,99999999,$9)")
+(expect (c1-IArg "10+" "...")  "$--(call ^E,$--(wordlist 2,99999999,$--9),`)")
+
+(expect (c1-IArg ";" ".")  "$;")
+(expect (c1-IArg ";" "..")  "$-(call ^E,$-;)")
+(expect (c1-IArg ";;" "..")  "$-(call ^E,$-(;;))")
+
 
 ;; Funcall: call an anonymous function
 
 (expect "$(call ^Y,,,,,,,,,,$1)"
-        (c1 (IFuncall [ (ILocal 1 0) ] )))
+        (c1 (IFuncall [ (IArg 1 ".") ] )))
 
 (expect "$(call ^Y,a,,,,,,,,,$1)"
-        (c1 (IFuncall [ (ILocal 1 0) (IString "a") ])))
+        (c1 (IFuncall [ (IArg 1 ".") (IString "a") ])))
 
 (expect "$(call ^Y,a,b,c,d,e,f,g,h,i j,$1)"
-        (c1 (IFuncall (cons (ILocal 1 0)
-                           (for s "a b c d e f g h i j"
+        (c1 (IFuncall (cons (IArg 1 ".")
+                           (for (s "a b c d e f g h i j")
                                 (IString s))))))
 
 ;; Block: a sequence of expressions
@@ -121,9 +141,9 @@
 ;;    (lambda (args...) body) -->  (ILambda BODY)
 
 (expect "$``"                (c1 (ILambda (IString "$"))))
-(expect "$`1"                (c1 (ILambda (ILocal 1 0))))
-(expect "$(call ^E,$3)"      (c1 (ILambda (ILocal 3 1))))
-(expect "$-(call ^E,$-3,`)"  (c1 (ILambda (ILocal 3 2))))
+(expect "$`1"                (c1 (ILambda (IArg 1 "."))))
+(expect "$(call ^E,$3)"      (c1 (ILambda (IArg 3 ".."))))
+(expect "$-(call ^E,$-3,`)"  (c1 (ILambda (IArg 3 "..."))))
 
 ;; c1-E
 
@@ -132,28 +152,28 @@
                   (crumb-extract (c1 (IBuiltin "wildcard"
                                                [(PError 0 "message")])))))
 
-;; c1-file-set and c1-file-fset
+;; c1-file-set
 
 (expect "x := $  $` \n"
-        (c1-file-set "x" " $` "))
+        (c1-file-set "x" " $` " 1))
 
 (expect "x := \\#$'\\\n"
-        (c1-file-set "x" "#\n\\"))
+        (c1-file-set "x" "#\n\\" 1))
 
 (expect "x$\" := \\#\n"
-        (c1-file-set "x#" "#"))
+        (c1-file-set "x#" "#" 1))
 
 (expect "f = $\n"
-        (c1-file-fset "f" "$`"))  ;; "$`" expands to "$" == $(value f)
+        (c1-file-set "f" "$`" nil))  ;; "$`" expands to "$" == $(value f)
 
-(expect (concat "$(call " "^fset" ",f,$(foo))\n")
-        (c1-file-fset "f" "$(foo)"))
+(expect "$(call ^fset,f,$(foo))\n"
+        (c1-file-set "f" "$(foo)" nil))
 
 (expect "define f\n $1\n$2 \nendef\n"
-        (c1-file-fset "f" " $`1\n$`2 "))
+        (c1-file-set "f" " $`1\n$`2 " nil))
 
 (expect "define f\n$   define\n$ endef\nendef\n"
-        (c1-file-fset "f" "  define\nendef"))
+        (c1-file-set "f" "  define\nendef" nil))
 
 ;; c1-file
 

@@ -11,6 +11,7 @@
    * [Vector Constructors](#vector-constructors)
    * [Dictionary Constructors](#dictionary-constructors)
    * [Syntax Quoting](#syntax-quoting)
+   * [Comments](#comments)
  * [Data Types](#data-types)
    * [Booleans](#booleans)
    * [Numbers](#numbers)
@@ -20,6 +21,7 @@
    * [Functions](#functions)
  * [Variables](#variables)
    * [Scope](#scope)
+   * [Destructuring](#destructuring)
  * [Macros](#macros)
  * [Special Forms](#special-forms)
  * [Libraries](#libraries)
@@ -28,6 +30,7 @@
    * [Run-time Tracing](#run-time-tracing)
    * [Profiling](#profiling)
  * [The SCAM Compiler](#the-scam-compiler)
+ * [Hashbang](#hashbang)
 
 ## Overview
 
@@ -187,6 +190,16 @@ original position in the source code, and typing information.  See
 `parse.scm` for complete details.
 
 
+### Comments
+
+Comments begin at a `;` character (outside of a quoted string) and continue
+to the end of the line.  A comment is treated as whitespace.
+
+Additionally, if the first line of a SCAM source file begins with a `#`
+character, that line is ignored.  This enables [hashbang](#hashbang)
+executables.
+
+
 ## Data Types
 
 The notion of "data type" in computer science is both ubiquitous and
@@ -212,15 +225,14 @@ all numbers are strings.  Similarly, some strings can represent vectors of
 strings.  Not all strings are vectors, but all vectors are strings, so we
 can think of vectors as a subset of the set of strings.  At the same time, a
 vector can contain any number of any string values, so we can also think of
-it as a Cartesian product of the set of strings.
+the set of vectors as the Kleene closure of the set of strings.
 
 In terms of these subordinate types, SCAM is not statically typed at all.
 SCAM is mostly oblivious to them.  It provides syntax for constructing some
-of these types, functions for manipulating them, and it can convert them
-back to source code form.  However, if you were to pass, say, a non-vector
-to the `append` function, it will perform a deterministic string
-manipulation and happily succeed, even though the result may not be of any
-use to you.
+of these types, functions for manipulating them, and it can pretty-print
+them.  However, if you were to pass, say, a non-vector to the `append`
+function, it will perform a deterministic string manipulation and happily
+succeed whether or not the result makes any sense.
 
 Some of these subordinate types are overlapping sets.  For example, `1` is
 equivalent to `[1]` (and `[[1]]` and so on), but mostly they are disjoint.
@@ -303,7 +315,7 @@ operations on word lists:
     +--------------------+------------------------+-----------------------------+
     | Operation          | Vectors                | Word Lists                  |
     +====================+========================+=============================+
-    | Create             | `[A B C]`              | `(concat A " " B " " C)`    |
+    | Create             | `[A B C]`              | `(._. A B C)`               |
     +--------------------+------------------------+-----------------------------+
     | Get item N         | `(nth N VEC)`          | `(word N LIST)`             |
     +--------------------+------------------------+-----------------------------+
@@ -311,11 +323,11 @@ operations on word lists:
     +--------------------+------------------------+-----------------------------+
     | Get last item      | `(last VEC)`           | `(lastword LIST)`           |
     +--------------------+------------------------+-----------------------------+
-    | Add item to front  | `(cons ITEM VEC)`      | `(concat WORD " " LIST)`    |
+    | Add item to front  | `(cons ITEM VEC)`      | `(._. WORD LIST)`           |
     +--------------------+------------------------+-----------------------------+
-    | Add item to back   | `(conj VEC ITEM)`      | `(concat LIST " " WORD)`    |
+    | Add item to back   | `(conj VEC ITEM)`      | `(._. LIST WORD)`           |
     +--------------------+------------------------+-----------------------------+
-    | Append sequences   | `(append V1 V2...)`    | `(append LIST1 " " LIST2)`  |
+    | Append sequences   | `(append V1 V2...)`    | `(._. LIST1 LIST2)`         |
     +--------------------+------------------------+-----------------------------+
     | Count items        | `(words VEC)`          | `(words LIST)`              |
     +--------------------+------------------------+-----------------------------+
@@ -403,9 +415,9 @@ access their members in a type-safe manner.
     8
 
 The first parameter is the value to be matched, and the remainder of the
-forms are `(PATTERN BODY)` pairs.  It tests these in order, and when the
-first pattern matches the value it evaluates and returns BODY.  If no
-patterns match, `nil` is returned.
+forms are `(PATTERN BODY)` pairs.  After the value expression is evaluated,
+it tests the patterns in order.  When a PATTERN matches it will evaluate and
+return the corresponding BODY.  If no patterns match, `nil` is returned.
 
 A pattern can be a (CONSTRUCTOR-NAME ARG...) where each ARG is a symbol.
 When the match is made, these symbols are bound to the corresponding members
@@ -499,7 +511,7 @@ invoked when a compound form is evaluated and the first item in the compound
 form is function value.
 
     > (define (f x y)
-    +   (concat x y))
+    +   (.. x y))
     > (f "a" "b")
     "ab"
 
@@ -532,9 +544,10 @@ function definition or declaration:
     (g 1 2 3)
      ^
 
-Functions can also deal with a variable number of arguments.  When the last
-parameter name is prefixed with `...`, that parameter will capture in a
-vector zero the rest of the arguments passed to the function.  For example:
+Functions and macros can also deal with a variable number of arguments.
+When the last parameter name is prefixed with `...`, that parameter will
+capture in a vector zero the rest of the arguments passed to the function.
+For example:
 
     > (define (f a b ...others)
     +   others)
@@ -551,20 +564,20 @@ value.
 parameter.  Optional `?NAME` parameters may not be followed by non-optional,
 non-rest parameters.
 
-Rest parameters may not be used with macros.
-
-
 ## Variables
 
 Variables are symbols that name already-computed values.  Variables can be
-either local or global.
+either global or local.
 
-Local variables are created with `let` expressions, or as function
-parameters in a `lambda` expression or function definition.  Local variables
-are immutable. They are assigned a value when initialized, and they cannot
-be assigned a different value.  The visibility and lifetime of a local
-variable is limited to the expression in which it is defined. See
-[`let`](#let).
+Global variables are defined by the `(define TARGET ...)` and `(define
+(TARGET ...ARGS) ...)` special forms.
+
+Local variables include function parameters and names defined with `let`,
+`let&`, for-expressions (`for`, `foreach`, `concat-for`, ...) and pattern
+matching expressions.  Local variables are immutable. They are assigned a
+value when initialized, and they cannot be assigned a different value.  The
+visibility and lifetime of a local variable is limited to the expression in
+which it is defined. See [`let`](libraries.md#let).
 
 Global variables are mutable and have unlimited lifetime.  They are visible to
 other SCAM modules, which means that if two modules in your program declare
@@ -607,6 +620,183 @@ special form contain blocks.  Lists of arguments passed to functions or
 macros are *not* blocks.  One argument cannot introduce a variable name for
 a subsequent expressions to use.
 
+### Destructuring
+
+SCAM supports *destructuring* assignment.  When destructuring, a complex
+form that describes a data structure can act as the "recipient" of a single
+value.  This can result in more than one variable being bound, each to
+different parts of the value that was provided.
+
+#### Vector Destructuring
+
+A simple vector destructuring target looks like a vector constructor:
+
+    (let (([x y] "a b")) (print x "," y))    ;;  prints "a,b"
+
+This is equivalent to the following:
+
+    (let ((temp "a b"))
+        (define `x (nth 1 temp))
+        (define `y (nth 2 temp))
+        (print x "," y))
+
+The final element of a vector target may be a "rest" name: a *symbol* that
+begins with `...`.  It will be bound to a vector that holds all of the
+"rest" of the vector elements.  (Note: SCAM does not currently support the
+corresponding syntax, "spread", for *constructing* vectors.)
+
+Destructuring can be nested.  The elements of a vector target (aside from
+the optional rest name) are themselves *targets*, so they can be symbols or
+destructuring targets.
+
+#### Dictionary Destructuring
+
+There are two ways of destructuring dictionaries.  The first is called "pair
+destructuring", and it treats the dictionary as a list of pairs.  It looks
+like a dictionary constructor that takes its key values from variables.
+
+    (let (({=k1: v1, =k2: v2} {a:1, b:2}))
+      (.. k1 k2)
+    ;; --> "ab"
+
+The first key/value pair in the target receive the key and value of the
+first pair in the dictionary, and the second key/value pair in the target
+receive their values from the second pair in the dictionary, and so on.
+
+Pair destructuring also supports a rest syntax.  It is indicated by using
+the symbol `...` as the key in a pair.  It can only appear in the last pair
+of a dictionary target.  For example, this function swaps keys and values in
+a (non-empty) dictionary.
+
+    (define (f {=k: v, ...: others})
+       (append {=v: k}
+               (if others (f others))))
+
+It is worth mentioning that destructuring of a single pair works well with
+`foreach`, since foreach binds one word at a time, and while dictionaries
+are not vectors they are word lists.  For example, the following expression
+swaps keys and values much more quickly than the above function (and handles
+empty dictionaries properly):
+
+    (foreach ({=k: v} EXPR)
+       {=v: k})
+
+The other way to destructure dictionaries is called "field destructuring",
+<<<<<<< HEAD
+and it treats the dictionary as an collection indexed by keys.  In this kind
+of target, all keys must be symbols or string literals (constants), and no
+"rest" syntax is supported.  For example:
+=======
+and it treats the dictionary as an unordered collection indexed by keys.  In
+this kind of target, all keys must be symbols or string literals
+(constants), and no "rest" syntax is supported.  For example:
+>>>>>>> bff1e94... Update documentation: destructuring, etc.
+
+    (let (({results: r, errors: e} EXPR))
+       BODY)
+
+...is equivalent to:
+
+    (let ((temp EXPR))
+       (define `r (dict-get "results" temp))
+       (define `e (dict-get "errors" temp))
+       BODY)
+
+#### Order of Evaluation
+
+<<<<<<< HEAD
+The first [vector example](vector-targets) shows a case where bound
+variables are macros that extract parts of the value when and if they are
+referenced.  In the case of `let`, the original expression that was assigned
+to the destructuring target is nevertheless evaluated only once.
+=======
+The first [vector example](vector-targets) shows a case where the variable
+names are bound to macros that extract parts of the value when and if the
+variables are evaluated.  In the case of `let`, the original expression that
+was assigned to the destructuring target is nevertheless evaluated only
+once.
+>>>>>>> bff1e94... Update documentation: destructuring, etc.
+
+When destructuring appears in a macro context, the original expression may
+be evaluated many times, as is normally the case with SCAM macros.
+
+    (define `[x y] EXPR)
+
+...is simply shorthand for:
+
+    (define `x (nth 1 EXPR))
+    (define `y (nth 2 EXPR))
+
+In the case of global variables, each bound symbol represents a different
+<<<<<<< HEAD
+global variable, but the original value is always evaluated once.
+=======
+global variable, but the expression that gives the entire value is always
+evaluated once.
+>>>>>>> bff1e94... Update documentation: destructuring, etc.
+
+    (define [g1 g2] EXPR)
+
+...is shorthand for:
+
+    (declare g1)
+    (declare g2)
+    (let ((temp EXPR))
+       (set g1 (nth 1 EXPR))
+       (set g2 (nth 2 EXPR)))
+
+The `let-global` form does not introduce global variable bindings, but it
+modifies their values at run-time.  It similarly evaluates values exactly
+once.
+
+
+#### Overview
+
+As a quick reference, here is an informal grammar that summarizes the above
+discussion on destructuring syntax and fills in a few details.  In this
+grammar, parentheses are used for grouping, a `,*` suffix indicates
+repetition of zero or more items with comma delimiters, a `?` suffix means
+the item may not appear, and a `*` suffix means zero or more repetitions of
+the item.
+
+    Params       = Target*  OptName*  RestName?
+    Target       = Name | VecTarget | PairTarget | FieldTarget
+    VecTarget    = `[` Target*  RestName? `]`
+    PairTarget   = `{` ( `=` Name `:` Target ),*  [, `...` `:` Target] `}`
+    FieldTarget  = `{` ( Name `:` Target ),* `}`
+
+    OptName is a symbol that begins with `?`.
+    RestName is a symbol that begins with `...`.
+    Name is a symbol that does not begin with `?` or `...`.
+
+Here is a list of the forms in SCAM that introduce bindings:
+
+     (lambda (Params) Body)
+     (define (Name Params) Body)
+     (define `(Name Params) Body)
+     (define Target Value)
+     (define `Target Value)
+     (let ((Target Value)...) Body)
+     (let& ((Target Value)...) Body)
+     (let-global ((Target Value)...) Body)
+     (for (Target List) Body)
+     (foreach (Target List) Body)
+     (append-for (Target Value) Body)
+     (concat-for (Target Value) Body)
+     (case REC (Pattern/Target Body) ...)
+
+Note that `case` clauses accept either "patterns" or targets.  A pattern
+takes the form of a record constructor and it performs destructuring like
+the targets described in this section, but pattern destructuring occurs only
+when the value matches the record type named in the pattern.  In other
+words, patterns are conditional.  Targets, even when they appear in `case`
+<<<<<<< HEAD
+clauses, are unconditional.
+=======
+clauses, are unconditional.  The first non-pattern clause in a `case` will
+always be evaluated, preventing any further clause matches from being
+attempted.
+>>>>>>> bff1e94... Update documentation: destructuring, etc.
 
 ## Macros
 
@@ -616,7 +806,7 @@ There are two forms of macros: symbol macros and compound macros.
 
 The syntax for defining a symbol macro is:
 
-    (define `NAME EXPR)
+    (define `TARGET EXPR)
 
 Each subsequent occurrence of the symbol within that block will expand to
 the expression.  Here is an example in the REPL:
@@ -630,7 +820,7 @@ the expression.  Here is an example in the REPL:
 
 Compound macros accept arguments.  The syntax for a compound macro definition is:
 
-    (define `(NAME ARG...) BODY)
+    (define `(TARGET ARG...) BODY)
 
 Macros are invoked just like functions:
 
@@ -639,18 +829,33 @@ Macros are invoked just like functions:
 Each invocation of the macro will be replaced by a `begin` block containing
 the macro body.  Within the macro body, the macro argument names are bound
 to the argument expressions.  Compound macros behave much like functions,
-but (1) they do not bind global variables to a function value, as function
-definitions do, and (2) when invoked, their argument expressions may be
-evaluated zero or more times.  When the value of a compound macro is
-requested, an equivalent function definition results.  Here is an example in
-the REPL:
+but macros cannot recurse, and when a macro is invoked, an expression passed
+as an argument argument may be evaluated zero or more times, depending on
+how many times the parameter ends up being evaluated within the macro body.
+For example:
+
+    > (define `(m a) (.. a a a) "done")
+    > (m (print 1))
+    1
+    1
+    1
+    "done"
+
+Defining a macro does not create a global function variable, but when the
+macro name itself is evaluated, its value is an anonymous function.  Here is
+an example in the REPL:
 
     > (define `(m a)
     +     (subst 2 9 a))
     > (m 123)
     193
-    > m
-    "$(subst 2,9,$1)"
+    > (let ((f m))
+    +   (f 123))
+    193
+
+The anonymous function behaves the same as the macro when invoked, only
+except for the fact that functions evaluate their arguments exactly once
+(while macros may evaluate them zero or more times).
 
 SCAM macros are hygienic -- they adhere to lexical scoping rules, just like
 SCAM functions.  Symbols named in the body of a macro are matched with the
@@ -659,7 +864,7 @@ binding that was in scope where the macro was defined.
     >  (let ((a 1))
     +     (define `X a)
     +     (let ((a 2))
-    +        (define `(f z) (concat X a z))
+    +        (define `(f z) (.. X a z))
     +        (let ((a 3))
     +           (f a))))
     123
@@ -731,11 +936,11 @@ To count all function invocations in a SCAM program:
 
 Or:
 
-    $ SCAM_TRACE='%:c' scam -x myprogram.scm
+    $ SCAM_TRACE='%:c' scam myprogram.scm
 
 To show details for all calls into functions beginning with "foo-":
 
-    $ SCAM_TRACE='foo-%' scam -x myprogram.scm
+    $ SCAM_TRACE='foo-%' scam myprogram.scm
 
 In the REPL:
 
@@ -782,7 +987,7 @@ following approach:
 
        $ time ...command...
 
-   The command can invoke your program via `scam -x program.scm ...args...`
+   The command can invoke your program via `scam program.scm ...args...`
    or it can invoke your program directly, assuming you have compiled it
    using `scam -o ...`.
 
@@ -816,7 +1021,7 @@ The SCAM Compiler supports four major modes of operation:
 
 2. Execute a SCAM source file.
 
-   Usage: `scam -x SOURCE [--] ARGS...`
+   Usage: `scam SOURCE [--] ARGS...`
 
    SCAM source file SOURCE will be compiled and immediately executed as in
    `scam -o`.  Command-line arguments not processed by `scam` as options
@@ -841,11 +1046,15 @@ The SCAM Compiler supports four major modes of operation:
 ### Cached Results
 
 In order to support fast incremental rebuilds of modules, SCAM stores
-intermediate compilation results in a directory called the **object
-directory**.  This defaults to ".scam/" unless SCAM is invoked with `scam -o
-EXE`, in which case it defaults to the directory containing EXE.  The
-location of the object directory can be overridden using the `--obj-dir`
-option.
+intermediate compilation results in a directory called the **build
+directory**.  The build directory is determined by one of the following
+(with the earlier ones taking precedence):
+
+  1. The value given by the `--build-dir` command line option.
+  2. If the `-o EXE` option is given, a directory named ".scam"
+     within the directory containing EXE.
+  3. The environment variable `SCAM_BUILD_DIR`.
+  4. $HOME/.scam
 
 SCAM uses hashes to determine the suitability of cached entries; not
 modification times.  As a result, when modifying a source file and
@@ -853,3 +1062,20 @@ re-compiling, you may find that the compilation finishes instantly, as if
 the change were not recognized.  This can happen if the modification returns
 the source file to some older state that had been previously compiled; in
 that case, the compiler can quickly identify how to recreate the program.
+
+
+## Hashbang
+
+In UNIX-based systems, SCAM source files may be marked as executable files
+and labeled with a hashbang (`#!`).  For example:
+
+    #!/usr/bin/env scam --quiet --
+    (define (main argv)
+      (print "Hello, world!"))
+
+The `--quiet` option ensures consistent behavior by suppressing the progress
+messages (to stderr) that would otherwise appear when compilation occurs.
+
+The `--` option ensures that remaining arguments are treated as the program
+name and program arguments, and are not interpreted as options by the SCAM
+compiler.

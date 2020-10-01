@@ -1,76 +1,23 @@
 TODO
 
-Bugs
+Enhancements
 ----
 
- * fix: (num-format 0.4 2 " ")                -> "  "
-        (num-format 868.8888888888858 6 " ")  ->  "??????"
-        (num-format 0.18 5 " " 3)             ->  "     .18000"
-        (mod 999 16) -> 54
+ * "spread" with "..." syntax.
 
- * fix: circular dependency warning with gen-testutils.
-
- * fix: 'rest' captures
-
-   (begin
-     (define (f a ...r)
-       (let ((x (wildcard a)))
-         (cons a r)))
-     (expect [1 2 3 "a b"] (f 1 2 3 "a b")))
-
-
-Library Enhancements
-----
-
- * num: (div-rem float float) : (div-rem N 1) == [floor(N) (- N floor(N))]
- * num: faster div: O(n) or close, not O(n^2)
- * num: validate all inputs; no undefined behavior
- * num: Exponentiation with non-integral exponents
- * num: accept E-notation for integers in: range, ^
- * num: multi-arg + and *
-
-
-Language/Runtime Enhancements
-----
-
- * Prefix automatic variables to avoid conflicts with globals, making them
-   functionally equivalent to locals.
-
- * Auto-rename variables to avoid conflict with Make special variables and
-   keywords (@, +, SHELL, MAKEFLAGS, etc.)
+ * Enhance call-site tracing to support lambdas and macros/builtins
+     (? lambda ...)  -->  (native-call "^tv" "any" (any ...))
+     or:  (native-call "^yt" "any" (lambda (args) (any args)) ...)
 
  * Forbid shadowing of variables
     - allow `(let ((x x)) ...)` or `&override` exceptions
     - validate `define` against prior `declare`
 
- * Remove `use`; handle xmacros-exporting modules in `require`
-
- * Enhance call-site tracing to support lambdas and macros/builtins
-
-     (? lambda ...)  -->  (call "^tv" "any" (any ...))
-     or:  (call "^yt" "any" (lambda (args) (any args)) ...)
-
- * Allow varargs in macros:
-      Maybe:  (ILocal "1+" ups)
-      At macro expand time, evaluates to precisely-sized vector.
-
- * Deconstruct vectors in `let`
-    (let (([a b c] vec)) ...)       ;; always succeeds
-
  * Record reflection.  What format-record needs:
-
     (data? value)
     (data-type value)    -> [ctor-name arity ctor dtor]
 
- * (case EXPR
-      (CONST        EXPR)   ;; match constant value (nil, for example)
-      ((Ctor "K" y) EXPR)   ;; match constant member
-      (["A" a b]    EXPR)   ;; match constant element (always succeeds)
-      ...)
-
- * "spread" with "..." syntax.
-
- * Macros don't have a good way to generate error messages or gensym.
+ * XMacros don't have a good way to generate error messages or gensym.
 
  * aliases: (define `g f) assigns g the correct value, but arity information
    is lost, and it compiles to a lambda-call, not a call-by-name.
@@ -103,12 +50,30 @@ Language/Runtime Enhancements
        (c <- fn2 a b)
        (return c))
 
+ * num: accept E-notation for integers in: range, ^
 
-Code Optimizations
-----
+ * num: multi-arg + and *
 
- * Identify arguments using special IL record (vs. R)
-     A n level           ->   local (arg)       $n
+ * &native=XXX would improve runtime.scm & enable builtins as declarations.
+
+ * (current-file LEVEL); and what about non-file sources?
+
+ * (EXPR ...) --> (funcall EXPR ...)
+
+ * defmacro: remove from language, or fix:
+    - form POS values dissociated from file
+       - allow for "qualified" pos values: qpos = pos:filename
+       - syntax quoting should yield records with qpos
+       - a polished exported "parse-text" function should return qpos
+       - c0 should honor filename in qpos instead of file/subject globals
+    - definition is not visible in REPL
+    - no hygienic way to reference values
+
+
+ * SCAM 3.0 (compatibility break)
+    - remove old foreach/for/concat-for/... syntax
+    - Put Make builtins in a separate namespace ("suffix" yields the Make
+      definition instead of "Variable not defined")
 
 
 Optimizations for Generated Code
@@ -163,7 +128,7 @@ Optimizations for Generated Code
      (Discard NOUT)  --> ""  [all consts are NOUT]
      (Discard (IConcat A B C)) -->  (Discard A) (Discard B) (Discard C)
 
- * IF-NOT reduction:  (if (not x) a b) -->  (if x b a)
+ * IF-NOT reduction:  (if (not x) a b) -->  (if x b a)   [27 x 9 bytes = 243 bytes]
  * IF-YES reduction:  (if (if C 1) a b) -->  (if C a b)
 
      Rule:    (if (if C A B) X Y)   --> (if C (if A X Y) (if B X Y))    [if A and B are true or nil]
@@ -177,10 +142,20 @@ Optimizations for Generated Code
      This can be applied recursively to break apart complex commonality.
      Not good when A or B are constants and `f` is evaluatable.
 
- * Misc...
+ * wordlist inside nth/word/wordlist
+    (word C1 (wordlist C2 99999999 ...))
+    (nth C1 (wordlist C2 99999999 ...))
+    (wordlist C1 999999999 (wordlist C2 99999999 ...))
+    (if (wordlist N 99999999 ...) ...)
+   Counts:
+    (word 1 (nth-rest 3 ...))       42
+    (word 2 (nth-rest 2 ...))        6
+    (word 3 (nth-rest 3 ...))        1
+    (nth N (nth-rest 3 ...))        10
+    (nth-rest N (nth-rest 3 ...))   11  (mostly N=2)
 
-     (word N (wordlist A B VEC))      -->  nil  ...or...  (word N+A-1 VEC)
-     (wordlist A B (wordlist C D VEC) --> (wordlist A+C-1 (min B D-C+1) VEC)
+
+ * Misc...
 
      (demote WORD)          -->  (subst "!" "!1" WORD)  [when word is not nil]
      (demote PLAIN)         -->  PLAIN

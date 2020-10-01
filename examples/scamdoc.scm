@@ -47,6 +47,16 @@
 (define (tok pat)
   (peg-and (peg-p pat) matchSpace))
 
+(declare matchParam)
+
+(define (lazyMatchParam subj start)
+  (matchParam subj start))
+
+(define matchParam
+  (peg-or (peg-p "%" "( )")
+          (peg-and (peg-p "(")
+                   (peg-* lazyMatchParam)
+                   (peg-p "%"))))
 
 (define matchDecl
   (peg-and matchSpace
@@ -55,7 +65,7 @@
                    (tok "declare"))
            (peg-? (peg-p "`" nil {is-macro: 1}))
            (tok "(")
-           (peg-c "proto" (peg-* (peg-p "%" ")")))
+           (peg-c "proto" (peg-* matchParam))
            (tok ")")
            (tok "&public")))
 
@@ -66,12 +76,15 @@
 (expect (matchDecl (lexify "(define `(foo) &public nil)") 1)
         (append 11 {is-macro: 1, proto: ["foo"]}))
 
+(expect (matchDecl (lexify "(declare (for (v lst) body) &public)") 1)
+        (append 17 {proto: ["for" " " "(" "v" " " "lst" ")" " " "body"]}))
+
 
 (define (dump name value)
   (define `ns
     (string-repeat " " (string-len name)))
   (printf "%s: [ ‹%s› ]" name
-          (subst "!0" "·" "\n" "␤" " " (concat "›\n" ns "    ‹") value)))
+          (subst "!0" "·" "\n" "␤" " " (.. "›\n" ns "    ‹") value)))
 
 
 ;; - Combine consecutive comment lines into a single word.
@@ -86,7 +99,7 @@
   (define `b
     (foreach line a
              (if (filter ";%" line)
-                 (concat line "!.")
+                 (.. line "!.")
                  (word 1 (subst ";" " " line)))))      ;;(subst "!0" "!s" ...)
 
   ;; Combine comment lines
@@ -113,10 +126,8 @@
   ;; Trim trailing newlines to exactly one
   (if comments
       (promote
-       (concat
-        (subst " " "\n"
-               (nth-rest 1 (subst "\n" nil lines)))
-        "\n"))))
+       (.. (subst " " "\n" (nth-rest 1 (subst "\n" nil lines)))
+           "\n"))))
 
 
 
@@ -153,14 +164,14 @@
 
 
 (define `test1
-  (concat ";; # Header\n"
-          "\n"
-          ";; Comment\n"
-          "\n"
-          "(define (f a) &public) nil)\n"
-          "(define (g a)) nil)\n"
-          "(define (h x)\n"
-          "   &public) nil)\n"))
+  (.. ";; # Header\n"
+      "\n"
+      ";; Comment\n"
+      "\n"
+      "(define (f a) &public) nil)\n"
+      "(define (g a)) nil)\n"
+      "(define (h x)\n"
+      "   &public) nil)\n"))
 
 (expect (extract-defns test1)
         [ {text: "# Header\n"}
@@ -184,7 +195,7 @@
   (promote (subst " " nil vsubst)))
 
 
-(expect (expand-template "a {f} c" {f: (lambda (a1 a2) (concat a2 a1))} "A" "B")
+(expect (expand-template "a {f} c" {f: (lambda (a1 a2) (.. a2 a1))} "A" "B")
         "a BA c")
 
 ;;--------------------------------
@@ -204,60 +215,56 @@
 
 (define (md-funcname text)
   ;; Back-tick escaping quotes all special characters
-  (concat "`" text "`"))
+  (.. "`" text "`"))
 
 
 ;; Generate "| MODULE | EXPORTS |" rows for an index of exports.
 ;;
 (define (fmt-index mod-defns)
   ;; The anchor that will be assigned to the module documentation
-  (define `(mod-anchor sections)
-    (define `h1
-      (first (split "\n" (dict-get "text" (first sections)))))
-    (md-anchor (nth-rest 1 (subst "#" nil h1))))
+  ;; is the header of the first section.
+  (define `(mod-anchor [{text: text} ..others])
+    (md-anchor (strip (subst "#" nil (first (split "\n" text))))))
 
   ;; Vector of function names linked to their descriptions.
   (define `(fmt-exports exports)
-    (concat-for
-        d exports " "
-        (concat "[" (md-funcname (first (dict-get "proto" d))) "]"
-                "(#"
-                (md-anchor (concat-vec (dict-get "proto" d)))
-                ")")))
+    (concat-for ({proto: proto} exports " ")
+      (.. "[" (md-funcname (first proto)) "]"
+          "(#"
+          (md-anchor (concat-vec proto))
+          ")")))
 
   (define `(fmt-row name exports sections)
     (sprintf "| [%s](#%s) | %s |\n"
              name (mod-anchor sections) (fmt-exports exports)))
 
-  (concat-for m mod-defns nil
-              (case m
-                ((Mod name _ exports sections)
-                 (fmt-row name exports sections)))))
+  (concat-for (m mod-defns nil)
+    (case m
+      ((Mod name _ exports sections)
+       (fmt-row name exports sections)))))
 
 
 ;; Generate sections for each module including module comments and
 ;; documentation for each export.
 ;;
 (define (fmt-modules mod-defns)
-  (define `(fmt-proto proto)
-    (concat (first proto)
-            (concat-vec (string-upper (rest proto)))))
+  (define `(fmt-proto [name ...params])
+    (.. name (string-upper (concat-vec params))))
 
   (define `(fmt-module name exports sections)
-    (concat
-     ;; Module-level documentation
-     (concat-for e sections nil
-                 (concat (dict-get "text" e) "\n"))
-     "## Exports\n\n"
-     ;; Exports and export documentation
-     (concat-for d exports "\n\n"
-                 (concat "##### `(" (fmt-proto (dict-get "proto" d)) ")`\n\n"
-                         (dict-get "doc" d)))))
+    ;; Module-level documentation
+    (.. "\n\n"
+        (concat-for ({text: text} sections nil)
+          (.. text "\n"))
+        "## Exports\n\n"
+        ;; Exports and export documentation
+        (concat-for ({proto: proto, doc: doc} exports "\n\n")
+          (.. "##### `(" (fmt-proto proto) ")`\n\n" doc))))
 
-   (concat-for m mod-defns nil
-               (case m
-                 ((Mod name _ exports sections)
-                  (fmt-module name exports sections)))))
+   (concat-for (m mod-defns nil)
+     (case m
+       ((Mod name _ exports sections)
+        (fmt-module name exports sections)))))
 
 
 ;; Construct a markdown document documenting one or more modules.
@@ -289,21 +296,20 @@
     (if (not sections)
         (perror "%s:1: ERROR: no module documentation" filename))
 
-    (for d exports
-         (if (not (dict-get "doc" d))
-             (perror "%s: ERROR: no documentation for (%s)"
-                     filename
-                     (concat-vec (dict-get "proto" d))))))))
+    (for ({doc: doc, proto: proto} exports)
+      (if (not doc)
+          (perror "%s: ERROR: no documentation for (%s)"
+                  filename
+                  (concat-vec proto)))))))
 
 
 (define template
-  (concat
+  (..
    "# SCAM Libraries\n"
    "\n"
    "| Module | Exports |\n"
    "| :-- | :-- |\n"
    "{index}\n"
-   "\n"
    "{modules}\n"))
 
 
@@ -312,20 +318,20 @@
 (define (generate infiles outfile)
 
   (define `mod-defns
-    (for file infiles
-         (let ((defns (extract-defns (read-file file))))
-           (Mod (basename (notdir file))
-                file
-                (sort (filter "export%" defns))
-                (filter "text%" defns)))))
+    (for (file infiles)
+      (let ((defns (extract-defns (read-file file))))
+        (Mod (basename (notdir file))
+             file
+             (sort (filter "export%" defns))
+             (filter "text%" defns)))))
 
   (let ((md (sort mod-defns)))
     (or
      ;; Report errors; exit if an error was detected.
      (vec-or
-      (for e md
-           (case e
-             ((Mod n f e s) (warn-undef n f e s)))))
+      (for (e md)
+        (case e
+          ((Mod n f e s) (warn-undef n f e s)))))
 
      (let ((err (write-file outfile (fmt-doc template md))))
        (if err
@@ -334,16 +340,13 @@
 
 (define (main argv)
 
-  (let ((omap (getopts argv "-o=")))
-    (define `(opt name)
-      (dict-get name omap))
-
+  (let (({o: out-file, *: in-files} (getopts argv "-o=")))
     (cond
-     ((not (opt "o"))
+     ((not out-file)
       (perror "scamdoc: no output file provided"))
 
-     ((not (opt "*"))
+     ((not in-files)
       (perror "scamdoc: no input files provided"))
 
      (else
-      (generate (opt "*") (last (opt "o")))))))
+      (generate in-files (last out-file))))))

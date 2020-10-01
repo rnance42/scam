@@ -6,351 +6,429 @@
 (require "parse.scm")
 (require "escape.scm")
 (require "gen.scm")
-(require "math.scm")
 
-(define *warn-upvals*
-  (findstring "U" (value "SCAM_DEBUG")))
 
-;; scan-flags: find index of last flag (or 0 if no flags), after
-;; skipping the first SKIP entries.
-
-(declare (scan-flags-x args n prev-n))
-
-(define `(scan-flags args skip)
-  (scan-flags-x args (1+ skip) skip))
-
-(define (scan-flags-x args n prev-n)
-  (or (case (nth n args)
+;; Find the index of last flag in FORMS, starting at N.  Return PREV-N is no
+;; flags are found.
+;;
+(define (scan-flags forms n prev-n)
+  (or (case (nth n forms)
         ((PSymbol pos name)
          (if (filter "&private &public &native" name)
-             (scan-flags args n))))
+             (scan-flags forms (1+ n) n))))
       prev-n))
 
 
-;; skip SKIP entries before looking for flags
-(define (get-flags args skip)
-  &public
-  (append-for form (wordlist (1+ skip) (scan-flags args skip) args)
-              (case form
-                ((PSymbol n name) name))))
-
-(define (skip-flags args skip)
-  &public
-  (nth-rest (1+ (scan-flags args skip)) args))
-
-
-(define `(level-count level)
-  (words (subst "." ". " level)))
-
-
-;; Translate macsym body to a different (lower) context
+;; Return flags from FORMS, where flags start at the second element.
 ;;
-;; Captures (local variable references where ups >= TOP) will be adjusted.
-;; Other local variable references will be left unchanged.
+(define (get-flags args)
+  &public
+  (append-for (form (wordlist 2 (scan-flags args 2 1) args))
+    (case form
+      ((PSymbol n name) name))))
+
+
+;; Return forms in FORMS following flags. Flags begin at the second element.
 ;;
-(define (xlat-node node top deeper)
+(define (skip-flags args)
+  &public
+  (nth-rest (1+ (scan-flags args 2 1)) args))
+
+
+;; Remove B from the initial part of A.
+;;
+;; len(Result) = len(A) - len(B) [if len(A) <= len(B); otherwise, A is
+;; returned unchanged]
+;;
+(define `(str-sub a b)
+    (patsubst (.. b "%") "%" a))
+
+
+;; Return A+B-C (in domain of string lengths)
+;; Assumes A+B >= C.
+;;
+(define `(str-add-sub a b c)
+    (patsubst (.. c "%") "%" (.. a b)))
+
+;; Construct a string describing the number of parameters:
+;;   "a b c"      ==>   "3"
+;;   "a ?b ?c"    ==>   "1 or 2 or 3"
+;;   "a ?b ?c ..." ==>  "1 or more"
+;;
+(define (get-arity args)
+  (if (filter "...% ?%" (lastword args))
+      (if (filter "...%" (lastword args))
+          (.. (words (filter-out "...% ?%" args)) "+")
+          (.. (get-arity (butlast args)) " " (words args)))
+      (words args)))
+
+
+;; Translate function argument references, automatic variable definitions
+;; and references, and replace macro arguments.
+;;
+;; NODE = an IL record to translate
+;; TOP = distance from NODE to the "top" level of the macro (the top is the
+;;     level at which arguments are to be replaced, and the level at which
+;;     auto variables need to be adjusted) in the form of the UPS value that
+;;     would refer to the TOP level if NODE were an IArg
+;; AD = the "new" auto-depth of NODE (number of enclosing IFor's *within*
+;;     the nearest enclosing ILambda, where NODE will be instantiated)
+;; OLD-AD = auto depth where the macro was defined
+;; NEW-AD = auto depth where the macro is being instantiated
+;; ARGS = arguments passed to macro
+;; SHIFT = number of UPS to add to captures, plus 1
+;;
+(define (xlat node top ad old-ad new-ad args shift pos)
+  (define `(recur r-node r-top r-ad)
+    (xlat r-node r-top r-ad old-ad new-ad args shift pos))
+
+  ;; Shift an auto var's name to adjust for change in auto nesting level at
+  ;; top of macro
+  (define `(auto-shift name)
+    (str-add-sub name new-ad old-ad))
+
+  ;; Translate a vector of nodes
   (define `(x* nodes)
-    (for n nodes (xlat-node n top deeper)))
+    (for (n nodes)
+      (recur n top ad)))
+
+  ;; IFor: track foreach nesting (at this lambda level)
+  (define `(xfor name list body)
+    (define `new-name
+      (if (filter "." top)
+          (auto-shift name)
+          name))
+    (IFor new-name (recur list top ad) (recur body top (.. ad ";"))))
+
+  ;; IArg: translate lambda argument or auto variable
+  (define `(xarg name ups node)
+    (cond
+     ;; Macro arg => replace with args[ndx]
+     ((and (filter top ups) args (filter-out ";%" name))
+      (define `arg-node
+        (if (findstring "+" name)
+            (il-vector (nth-rest (subst "+" nil name) args))
+            (nth name args)))
+      (xlat arg-node "." ad new-ad ad nil ups pos))
+
+     ;; Top-level auto within the macro => rename auto
+     ((and (filter top ups) (findstring (.. old-ad ";") name))
+      (IArg (auto-shift name) ups))
+
+     ;; Capture => shift
+     ;;   UPS>=TOP and not MACRO-ARG and not RENAMED-AUTO
+     ((findstring top ups)
+      (IArg name (str-add-sub ups shift ".")))
+
+     (else
+      node)))
 
   (case node
     ((IString s) node)
     ((IBuiltin name args) (IBuiltin name (x* args)))
     ((ICall name args) (ICall name (x* args)))
-    ((ILocal ndx ups)
-     (if (>= ups top)
-         (ILocal ndx (+ ups deeper))
-         node))
-    ((IConcat nodes) (IConcat (x* nodes)))
-    ((ILambda node)
-     (ILambda (xlat-node node (1+ top) deeper)))
+    ((IArg n ups) (xarg n ups node))
     ((IFuncall nodes) (IFuncall (x* nodes)))
+    ((IConcat nodes) (IConcat (x* nodes)))
     ((IBlock nodes) (IBlock (x* nodes)))
+    ((IFor name list body) (xfor name list body))
+    ((ILambda body) (ILambda (recur body (.. "." top) nil)))
+    ((IWhere p) (if p (IWhere pos) node))
     (else node)))
 
 
-;; Translate IWhere nodes to the source location where the macro is
-;; expanded.
+;; A substring that identifies an IWhere anywhere within an IL record.
 ;;
-(define (xlat-where node pos)
-  (define `(x* nodes)
-    (for n nodes (xlat-where n pos)))
-
-  (case node
-    ;; These are handled the same as the else clause, but are frequent, so
-    ;; check them first.  Note that they collapse to one `if`.
-    ((ILocal _ _) node)
-    ((IString _) node)
-    ((IVar _) node)
-    ((ICall name args) (ICall name (x* args)))
-    ((IBuiltin name args) (IBuiltin name (x* args)))
-    ((IWhere p) (IWhere (if p pos)))
-    ((IConcat nodes) (IConcat (x* nodes)))
-    ((IFuncall nodes) (IFuncall (x* nodes)))
-    ((IBlock nodes) (IBlock (x* nodes)))
-    ((ILambda node) (ILambda (xlat-where node pos)))
-    (else node)))
+(define IWhere-sig
+  (word 1 (subst "!" nil (IWhere nil))))
 
 
-;; FROM-LEVEL = level (unary) where macro was defined.
-;; TO-LEVEL = level (unary) where macro is being expanded.
+;; OLD-DEPTH = depth at which NODE was compiled
+;; NEW-DEPTH = depth to which NODE is being translated
+;; ARGS = for symbol macros, nil.  For compound macros, a *non-nil* vector
+;;     of arguments to the macro: IL nodes compiled at NEW-DEPTH.
+;; POS = parsing token index of location of instantiation
 ;;
-(define (xlat-arg node from-level to-level)
-  (define `(dots- a b)
-    (subst (concat ":" b) "" (concat ":" a)))
-  ;; If from-level == to-level, captures do not need to be translated.
-  ;; If from-level==nil, there are no captures to translate.
-  (if (filter-out to-level from-level)
-      (xlat-node node 0 (level-count (dots- to-level from-level)))
+(define (translate node old-depth new-depth args pos)
+  (define `old-ad (depth.a old-depth))
+  (define `new-ad (depth.a new-depth))
+  (define `shift (str-add-sub (depth.l new-depth) "." (depth.l old-depth)))
+
+  ;; if no-args and old-depth=new-depth and no-IWheres: return node
+  (if (or args
+          (not (eq? old-depth new-depth))
+          (findstring IWhere-sig node))
+      ;; translate
+      (xlat node "." new-ad old-ad new-ad args shift pos)
+      ;; no word required
       node))
 
-;; This limits to 128 the levels of lambda nesting around an argument within
-;; a macro.
-(define `(dots-from-num num)
-  (wordlist 1 num (subst "." ". . . . . . . . "
-                         "................")))
+
+;;--------------------------------
+;; c0
+;;--------------------------------
 
 
-;; Translate a compound macro body to a new context.
-;; Locals with ups==TOP are replaced with values from arg-values.
-;; Locals with ups>TOP are adjusted by DEEPER.
+(declare (c0-L env pos sym args defn))
+(declare (c0-S env sym name defn))
+(declare (c0-D env n pairs))
+(declare (c0-qq env form))
+
+
+(define (c0-error form)
+  (define `msg
+    (case form
+      ((PUnquote n sub) "unquote (,) outside of a quasiquoted (`) form")
+      ((PSplice n sub) "splice (,@) outside of a quasiquoted (`) form")
+      (else "bad AST node: %q")))
+  (case form
+    ((PError n code) form)
+    (else (gen-error form msg form))))
+
+
+;; Compile an expression.  Return IL.
 ;;
-(define (xlat-macro node top deeper arg-values)
-  (define `(x* nodes)
-    (for n nodes (xlat-macro n top deeper arg-values)))
-
-  (case node
-    ((IString s) node)
-    ((IBuiltin name args) (IBuiltin name (x* args)))
-    ((ICall name args) (ICall name (x* args)))
-    ((ILocal ndx ups) (cond
-                       ;; macro arg
-                       ((eq? ups top)
-                        (xlat-arg (or (nth ndx arg-values) NoOp)
-                                  "."
-                                  (concat "." (dots-from-num top))))
-                       ;; capture
-                       ((> ups top) (ILocal ndx (+ ups deeper)))
-                       ;; interior local
-                       (else node)))
-    ((IConcat nodes) (IConcat (x* nodes)))
-    ((ILambda node)
-     (ILambda (xlat-macro node (1+ top) deeper arg-values)))
-    ((IFuncall nodes) (IFuncall (x* nodes)))
-    ((IBlock nodes) (IBlock (x* nodes)))
-    (else node)))
+(define (c0 form env)
+  &public
+  (case form
+    ((PList n [sel ...args]) (c0-L env n sel args (resolve sel env)))
+    ((PString n value) (IString value))
+    ((PSymbol n value) (c0-S env form value (resolve form env)))
+    ((PDict n pairs) (c0-D env n pairs))
+    ((PVec n forms) (il-vector (for (f forms) (c0 f env))))
+    ((PQuote n subform) (IString subform))
+    ((PQQuote n subform) (c0-qq env subform))
+    (else (c0-error form))))
 
 
-;; NODE = compiled lambda body
-;; FROM-DEPTH = lambda nesting level (unary) where macro was defined.
-;;    This refers to the nesting level outside the ILambda (which has
-;;    been removed).  The body is actually nested one level deeper.
-;; TO-DEPTH = lambda nesting level (unary) where macro is being expanded.
+;;--------------------------------
+;; Symbol: macro name
+;;--------------------------------
+
+
+;; Generate a lambda value from a macro definition.  This is the value
+;; that is produced when the macro name is used in a context other than
+;; the first form in compound form.
 ;;
-(define (expand-macro node from-depth to-depth arg-values pos)
-  (define `(dots- a b)
-    (subst (concat ":" b) "" (concat ":" a)))
-  ;; subtract 1 from the offset to account for extraction of lambda body
-  (define `deeper
-    (- (level-count (dots- to-depth from-depth)) 1))
-
-  (xlat-macro (xlat-where node pos) 0 deeper arg-values))
+(define (c0-macro depth node env sym)
+  (translate (ILambda node) (str-sub depth ".") (current-depth env)
+             nil (form-index sym)))
 
 
-;; Generate an error if a non-optional parameter follows an optional one.
-;;
-(define (check-optional-args args ?seen-optional)
-  (define `a
-    (first args))
-  (if args
-      (if (filter "...% ?%" (symbol-name a))
-          (check-optional-args (rest args) 1)
-          (if seen-optional
-              (gen-error a "non-optional parameter after optional one")
-              (check-optional-args (rest args) nil)))))
+;;--------------------------------
+;; Symbol: builtin name
+;;--------------------------------
 
 
-;;================================
-;; c0 compilation
-;;================================
-
-(declare (c0 form env))
-(declare (c0-block forms env))
-(declare (c0-lambda env args body))
-
-
-;; c0-local: Construct a local variable reference.
-;;
-;; A unary counting system identifies levels of nesting of functions:
-;;
-;;    "." = outermost function
-;;    ".." = first nesting level down
-;;    "..." = third down
-;;
-;; ARG is a decimal index preceded by the level where it is bound (e.g. "..3").
-;; MARKER is an EMarker describing the current nesting level.
-;; FORM is used in the up-value warning form of the function.
-;;
-(define (c0-local arg depth sym)
-  (define `ndx
-    (subst "." "" arg))
-
-  (if (and *warn-upvals*
-           (not (findstring depth arg)))
-      (info (describe-error
-             (gen-error sym "reference to upvalue %q" (symbol-name sym))
-             (pdec *compile-subject*)
-             *compile-file*)))
-
-  (ILocal ndx
-         (level-count (subst arg "" (concat depth ndx)))))
-
-
-;; Return the "value" of a record constructor: an equivalent anonymous
-;; function.
-;;
-(define (c0-ctor env sym encs)
-  (define `args
-    (for i (indices encs)
-         (PSymbol 0 (concat "a" i))))
-  (c0-lambda env args [ (PList 0 (cons sym args)) ]))
-
-
-;; MACRO --> (lambda (a b c...) (MACRO a b c...)
-;;
-(define (c0-macro env inln)
-  (define `depth-from (first inln))
-  (define `macro-il (rest inln))
-
-  ;; Adjust captures; do not replace macro args.
-  (xlat-arg (ILambda macro-il) depth-from (current-depth env)))
-
-
-(define (c0-builtin env name argc)
+(define (c0-builtin env name arity)
   (define `max-argc
-    (word 1 (filter "3 2 1" argc)))
+    (word 1 (filter "3 2 1" arity)))
 
   (ILambda
    (if max-argc
-       (IBuiltin name (for n (wordlist 1 max-argc "1 2 3")
-                          (ILocal n 0)))
+       (IBuiltin name (for (n (wordlist 1 max-argc "1 2 3"))
+                        (IArg n ".")))
        (ICall "^na" [ (IString name) (IVar "^av") ]))))
 
 
 (define (c0-S-error sym defn)
   (if defn
-      (gen-error sym "internal: %q binds to %q" sym defn)
-      (gen-error sym "undefined variable %q" (symbol-name sym))))
+      (gen-error sym "internal: %s binds to %q" sym defn)
+      (gen-error sym "undefined variable: `%s`" (symbol-name sym))))
 
 
-;; Symbol value
-;;    DEFN = definition bound to symbol
+;;--------------------------------
+;; Symbol
+;;--------------------------------
+
+(declare (c0-ctor env sym encs))
+
+
+;; DEFN = definition bound to symbol
+;;
 (define (c0-S env sym name defn)
   (case defn
-    ((EArg arg)
-     (c0-local arg (current-depth env) sym))
+    ((EIL _ depth il)
+     (translate il depth (current-depth env) nil (form-index sym)))
 
-    ((EVar gname _)
+    ((EVar _ gname)
      (IVar gname))
 
-    ((EFunc gname _ _ macro)
-     (if (filter NoGlobalName gname)
-         (c0-macro env macro)
-         (IBuiltin "value" [(IString gname)])))
+    ((EMacro _ depth _ il)
+     (c0-macro depth il env sym))
 
-    ((EIL depth _ il)
-     (xlat-arg (xlat-where il (form-index sym))
-               depth (current-depth env)))
+    ((EFunc _ gname _)
+     (IBuiltin "value" [(IString gname)]))
 
-    ((ERecord encs _ tag)
+    ((ERecord _ encs tag)
      (c0-ctor env sym encs))
 
-    ((EBuiltin name _ argc)
-     (c0-builtin env name argc))
+    ((EBuiltin _ name arity)
+     (c0-builtin env name arity))
 
     (else (c0-S-error sym defn))))
 
 
-;; Compile a vector of expressions independently, as in an argument
-;; list.  Declarations and definitions on one expression do not apply to
-;; subsequent ones (inlike c0-block-cc).
+;;--------------------------------
+;; { KEY: VALUE, ...}
+;;--------------------------------
+
+;; Return IL for a dictionary key.
 ;;
-(define (c0-vec forms env)
-  &public
-  (for f forms (c0 f env)))
+(define (c0-dict-key form env)
+  (case (il-demote (c0 form env))
+    ((ICall name args)
+     (if (eq? name "^d")
+         (ICall "^k" args)
+         (ICall name args)))
+    (node
+     (subst-in-il "%" "!8" node))))
 
 
-;; Function call by name.
-;;
-;;   Ordinary function:  macro is nil,  REALNAME = global name
-;;   Compound macro:     macro non-nil, REALNAME = NoGlobalName
-;;
-(define (c0-call env sym args realname argc macro)
-  (define `depth-from (first macro))
-  (define `macro-il (rest macro))
+(define (c0-D env n pairs)
+  (define `il-pairs
+    (foreach ({=key: value} pairs)
+      (define `key-node
+        (case key
+          ;; {symbol: ...} is treated as {"symbol": ...}
+          ;; Note: symbols cannot contain "%"
+          ((PSymbol n name)
+           (if (filter "=%" name)
+               (c0-dict-key (PSymbol n (patsubst "=%" "%" name)) env)
+               (IString (demote name))))
+          (else
+           (c0-dict-key key env))))
+      (define `value-node
+        (il-demote (c0 value env)))
 
-  (or (check-argc argc args sym)
-      (if macro
-          ;; macro
-          (expand-macro macro-il
-                        depth-from
-                        (current-depth env)
-                        (for a args (c0 a env))
-                        (form-index sym))
+      [(il-concat [ key-node (IString "!=") value-node ])]))
 
-          ;; function
-          (ICall realname (c0-vec args env)))))
+  (il-concat (intersperse (IString " ") il-pairs)))
 
 
-;; Special forms are implemented in functions that begin with "ml.special-".
-;;
-(define `(special-form-func name)
-  (declare (ml.special-))
-  (concat (native-name ml.special-) name))
+;;--------------------------------
+;; (CTOR ...ARGS)
+;;--------------------------------
 
 
 ;; form = `(Ctor ARG...)
 (define (c0-record env sym args encodings tag)
   (or
-   (check-argc (words encodings) args sym)
+   (check-arity (words encodings) args sym)
 
    (IConcat
     (cons
      (IString tag)
-     (foreach n (indices encodings)
-              (begin
-                (define `enc (word n encodings))
-                (define `arg (nth n args))
-                (define `value (c0 arg env))
-                (define `field (if (filter "S" enc)
-                                   (il-demote value)
-                                   value))
+     (foreach (n (indices encodings))
+       (define `enc (word n encodings))
+       (define `arg (nth n args))
+       (define `value (c0 arg env))
+       (define `field (if (filter "S" enc)
+                          (il-demote value)
+                          value))
 
-                (append [(IString " ")] [field])))))))
+       (append [(IString " ")] [field]))))))
+
+;;--------------------------------
+;; c0-block
+;;--------------------------------
+
+;; Compile a vector of forms, calling `k` with results.
+;;
+;; FORMS = vector of forms
+;; K = fuction to call: (k new-env nodes)
+;; ENV = current environment
+;; RESULTS = results (not including previous compiled form)
+;; O = result of compiling previous form EXCEPT the first time
+;;     this function is called, when it is nil.
+;;
+(define (c0-block-cc env forms k ?results ?o)
+  (define `new-results
+    (._. results [o]))
+
+  (case o
+    ((IEnv bindings node)
+     (c0-block-cc (append bindings env) forms k results node))
+
+    (else
+     (if forms
+         (c0-block-cc env (rest forms) k new-results
+                      (c0 (first forms) env))
+         (k env (filter-out [nil] new-results))))))
 
 
-;; L: compound forms
-;;    defn = Result of (resolve op), which is either:
-;;              a) "-" if op is not a symbol
-;;              b) nil if op is an unbound symbol)
-;;              b) an env record if op is a defined symbol
+;; Compile a vector of forms as a block (each expression may modiy
+;; the environment for subsequent expressions). Return a single IL node.
+;;
+(define (c0-block forms env)
+  &public
+  (c0-block-cc env
+               forms
+               (lambda (env results)
+                 (if (word 2 results)
+                     (IBlock results)
+                     (first results)))))
+
+
+;;--------------------------------
+;; ( ...FORMS )    [compound expressions]
+;;--------------------------------
+
+
+;; Return a special form function native name given the symbol-name.
+;;
+;; Special forms are implemented in functions that begin with "M.".
+;;
+;; (M.XXX ENV SYM ARGS) -> RESULT
+;;
+;; SYM = a (PSymbol ...) record
+;; ARGS = forms following SYM in `(SYM ...)` invocation of the special form
+;; RESULT = a single IL node
+;;
+(define `(special-form-func name)
+  (declare (M.))
+  (.. (native-name M.) name))
+
+
+;; Compile a vector of expressions independently, as in an argument list.
+;; Bindings established by one expression do not apply to subsequent ones.
+;; Note: This may evaluate ENV more than once.
+;;
+(define `(c0-vec forms env)
+  &public
+  (for (f forms) (c0 f env)))
+
+
+;; DEFN = (resolve (first subforms) env), which is either:
+;;     * "-" if op is not a symbol
+;;     * nil if op is an unbound symbol
+;;     * an env record if op is a defined symbol
 ;;
 (define (c0-L env pos sym args defn)
   (define `symname (symbol-name sym))
 
   (case defn
-    ((EFunc realname _ argc macro)
-     (c0-call env sym args realname argc macro))
+    ((EFunc _ realname arity)
+     (or (check-arity arity args sym)
+         (ICall realname (c0-vec args env))))
 
-    ((EBuiltin realname _ argc)
-     (or (check-argc argc args sym)
+    ((EMacro _ depth arity il)
+     (or (check-arity arity args sym)
+         (translate il depth (current-depth env)
+                    (or (c0-vec args env)
+                        [(IString "")])  ;; ensure ARGS is non-nil
+                    (form-index sym))))
+
+    ((EBuiltin _ realname arity)
+     (or (check-arity arity args sym)
          (IBuiltin realname (c0-vec args env))))
 
-    ((EXMacro name scope)
+    ((EXMacro scope name)
      (if (eq? scope "x")
          (gen-error sym "cannot use xmacro in its own file")
-         (c0 (call name args) env)))
+         (c0 (native-call name args pos) env)))
 
-    ((ERecord encodings _ tag)
+    ((ERecord _ encodings tag)
      (c0-record env sym args encodings tag))
 
     (else
@@ -364,106 +442,84 @@
         (IFuncall (c0-vec (cons sym args) env)))
 
       ;; Macro/special form.
-      ((bound? (special-form-func symname))
-       (call (special-form-func symname) env sym args))
+      ((native-bound? (special-form-func symname))
+       (native-call (special-form-func symname) env sym args))
 
       ;; none of the above
       (else
-       (gen-error sym "undefined symbol: %q" symname))))))
+       (gen-error sym "undefined symbol: `%s`" symname))))))
 
 
-;;================================================================
-;; lambda
-;;================================================================
+;;--------------------------------
+;; (lambda (...SYMS) ...EXPRS)
+;;--------------------------------
 
-;; Construct a binding for an argument to a function
+
+;; Construct environment bindings for a function parameter list.  The first
+;; parameter is bound to (IArg 1 "."), the second to (IArg 2 "."), and so
+;; on.  Parameters may be symbols or more complex targets.
 ;;
-(define `(lambda-arg sym single-value rest-value)
-  (foreach name (symbol-name sym)
-           (if (filter "...%" name)
-               ;; "...X" => bind "X";  "..." => bind "..."
-               { (or (patsubst "...%" "%" name) name): rest-value }
-               { (patsubst "?%" "%" name): single-value })))
-
-
-;; Add local variables to environment.
+;; Syntax errors encountered during parsing parameters are returned as
+;; bindings with a variable name of EnvErrorKey.
 ;;
-;; level = string of "$" for a lambda marker
-;;
-(define (lambda-env-arg9 xargs level)
-  (define `(macsym il)
-    (EIL level "-" il))
+(define (bind-params depth forms ?not-at-end)
+  ;; Handle `...NAME` at the final position, preceded by zero or more `?NAME`.
+  (define `variadic-case
+    (case (last forms)
+      ((PSymbol _ sym-name)
+       (foreach (name (filter (if not-at-end "?%" "...% ?%") sym-name))
 
-  (define `(nth-value n)
-    (macsym (IBuiltin "call" [(IString "^n") (IString n) (ILocal 9 0)])))
+         (define `var-name
+           (or (patsubst (if (filter "?%" name) "?%" "...%") "%" name)
+               name))
 
-  (define `(nth-rest-value n)
-    (if (eq? n 1)
-        (EArg (concat level 9))
-        (macsym
-         (IBuiltin "wordlist" [(IString n) (IString 999999) (ILocal 9 0)]))))
+         (define `var-index
+           (.. (words forms) (if (filter "...%" name) "+")))
 
-  (foreach n (indices xargs) (lambda-arg (nth n xargs)
-                                         (nth-value n)
-                                         (nth-rest-value n))))
+         (append (bind-params depth (butlast forms) 1)
+                 { =var-name: (EIL "p" depth (IArg var-index ".")) })))))
 
-
-(define (lambda-env-args args level)
-  (define `(nth-value n)
-    (EArg (concat level n)))
-  (define `(nth-rest-value n)
-    (EIL "" "-" (IBuiltin "foreach" [(IString "N") (IString n) (IVar "^v")])))
-
-  (append { =LambdaMarkerKey: (EMarker level) }
-          ;; first 8 args = $1 ... $8
-          (foreach n (indices (wordlist 1 8 args))
-                   (lambda-arg (nth n args)
-                               (nth-value n)
-                               (nth-rest-value n)))
-          ;; args 9 and up = (nth 1 $9), (nth 2 $9), ...
-          (if (word 9 args)
-              (lambda-env-arg9 (nth-rest 9 args) level))))
+  (if forms
+      (or variadic-case
+          ;; Process all non-optional arguments
+          (foreach (n (indices forms))
+            (bind-target (nth n forms) "p" depth (IArg n "."))))))
 
 
-(define `(lambda-env args env)
-  (append (lambda-env-args
-           args
-           (concat "." (current-depth env)))
-          env))
+(define (c0-lambda env params body)
+  &public
+  (foreach (depth (depth.l (.. "." (current-depth env))))
+    (let ((bindings (bind-params depth params))
+          (env env)
+          (body body))
 
+      (define `body-env
+        (append (depth-marker depth) bindings env))
 
-(define (c0-lambda env args body)
-  (or (check-optional-args args)
-      (ILambda (c0-block body (lambda-env args env)))))
-
-
-(define (lambda-error type form parent desc)
-  (err-expected type form parent desc "(lambda (ARGNAME...) BODY)"))
+      (or (dict-get EnvErrorKey bindings)
+          (ILambda (c0-block body body-env))))))
 
 
 ;; special form: (lambda ARGS BODY)
-(define (ml.special-lambda env sym args)
-  (define `arglist (first args))
-  (define `body (rest args))
+(define (M.lambda env sym [args-form ...body])
+  (case args-form
+    ((PList pos params)
+     (c0-lambda env params body))
+    (else (err-expected "L" args-form sym
+                        "(ARGNAME...)" "(lambda (ARGNAME...) BODY)"))))
 
-  (case arglist
-    ((PList pos lambda-args)
-     (or (vec-or (for a lambda-args
-                      (case a
-                        ((PSymbol n name) nil)
-                        (else (lambda-error "S" a sym "ARGNAME")))))
-         (c0-lambda env lambda-args body)))
-    (else (lambda-error "L" arglist sym "(ARGNAME...)"))))
 
-;;================================================================
-;; declare/define
-;;================================================================
+;;--------------------------------
+;; (declare ...)
+;; (define ...)
+;;--------------------------------
+
 
 (define (c0-check-body where first-form is-define)
   ;; validate BODY
   (if is-define
       (if (not first-form)
-          (gen-error where "no BODY supplied to (define FORM BODY)"))
+          (gen-error where "no BODY supplied to (define TARGET BODY)"))
       (if first-form
           (gen-error first-form "too many arguments to (declare ...)"))))
 
@@ -473,11 +529,13 @@
 ;;
 (define (il-errors node)
   (define `(r* nodes)
-    (append-for node nodes (il-errors node)))
+    (append-for (node nodes)
+      (il-errors node)))
   (case node
     ((PError _ _) [node])
     ((IBuiltin _ args) (r* args))
     ((ICall _ args) (r* args))
+    ((IFor _ list body) (append (il-errors list) (il-errors body)))
     ((IFuncall nodes) (r* nodes))
     ((IConcat nodes) (r* nodes))
     ((IBlock nodes) (r* nodes))
@@ -488,112 +546,112 @@
 ;; Otherwise, return nil.
 ;;
 (define (il-error-node node)
-  (let ((errors (il-errors node)))
-    (if errors
+  (if (findstring (subst "!" nil (word 1 (PError nil nil)))
+                  node)
+      (let ((errors (il-errors node)))
         (if (word 2 errors)
             (IBlock errors)
             (first errors)))))
 
 
-;; Generate error is variable or function name conflicts with Make built-in
-;; function of automatic variable.
+;;--------------------------------
+;; (define `TARGET FLAGS... BODY)
+;; (declare TARGET FLAGS...)
+;; (define  TARGET FLAGS... BODY)
+;;--------------------------------
+
+
+;; Generate code to assign a global variable
 ;;
-(define (check-name name n)
-  (if (filter name builtin-names)
-      (gen-error n "cannot redefine built-in function %q" name)
-      ;; Use ":" (illegal name char) to represent "%"
-      (if (filter "@ : < ? ^ + | *" (subst "%" ":" name) )
-          (gen-error n "cannot redefine automatic variable '$%s'" name))))
+(define (assign-nx nx flags il)
+  (case nx
+    ((Bind name xtor)
+     (ICall "^set" [ (IString (gen-native-name name flags)) (xtor il) ]))))
 
 
-;; (define `NAME FLAGS... BODY)
-;; (declare NAME FLAGS...)
-;; (define  NAME FLAGS... BODY)
+(define (c0-def-target-2 env nxmap flags value is-define is-macro scope)
+  ;; Bindings for global variables (names mentioned in target)
+  (define `bindings
+    (append-for (nx nxmap)
+      (case nx
+        ((Bind name xtor)
+         {=name: (EVar scope (gen-native-name name flags))}))))
 
-(define (c0-def-symbol env n name flags body is-define is-macro)
-  (or (c0-check-body n (first body) is-define)
+  (define `set-nodes
+    (for (nx nxmap)
+      (assign-nx nx flags (IArg 1 "."))))
 
-      (if (not is-macro)
-          (check-name name n))
+  (define `assignment-code
+    (if (word 2 nxmap)
+        ;; Mutiple vars => (let ((v VALUE)) (^set NAME1 (XTOR1 v)) ...)
+        (IFuncall [ (ILambda (IBlock set-nodes)) value ])
+        ;; Single var => (^set NAME (XTOR v))))
+        (assign-nx (first nxmap) flags value)))
 
-      (let ((value (c0-block body env))
-            (scope (if (filter "&public" flags) "x" "p"))
-            (gname (gen-native-name name flags))
-            (depth (current-depth env))
-            (is-define is-define)
-            (is-macro is-macro))
+  (or (first-perror nxmap)
 
-        (define `env-out
-          { =name: (if is-macro
-                       (EIL depth scope value)
-                       (EVar gname scope)) })
+      (il-error-node value)
 
-        (or (il-error-node value)
-            (IEnv env-out
-                  (and is-define
-                       (not is-macro)
-                       (ICall "^set" [ (IString gname) value ])))))))
-
-
-;; Construct a string describing the number of parameters:
-;;  "a b c"      ==>   "3"
-;;  "a ?b ?c"    ==>   "1 or 2 or 3"
-;;  "a ?b ?c ..." ==>  "1 or more"
-;;
-(define (get-argc args)
-  (if (filter "...% ?%" (lastword args))
-      (if (filter "...%" (lastword args))
-          (concat (words (filter-out "...% ?%" args)) " or more")
-          (concat (get-argc (butlast args)) " or " (words args)))
-      (words args)))
+      (if is-macro
+          (IEnv (bind-nxmap nxmap scope (current-depth env) value) nil)
+          (IEnv bindings
+                (if is-define
+                    assignment-code)))))
 
 
-;; (define `(NAME ARGS...) FLAGS BODY)
-;; (declare (NAME ARGS...) FLAGS)
-;; (define  (NAME ARGS...) FLAGS BODY)
+(define (c0-def-target env target flags body is-define is-macro)
+  (or (c0-check-body (form-index target) (first body) is-define)
+      (c0-def-target-2 env
+                       (parse-target target)
+                       flags
+                       (c0-block body env)
+                       is-define
+                       is-macro
+                       (if (filter "&public" flags) "x" "p"))))
+
+
+;;--------------------------------
+;; (define `(NAME PARAMS...) FLAGS BODY)
+;; (declare (NAME PARAMS...) FLAGS)
+;; (define  (NAME PARAMS...) FLAGS BODY)
+;;--------------------------------
+
 
 (define (c0-def-compound env n name args flags body is-define is-macro)
-  (define `argc (get-argc (for a args (symbol-name a))))
+  (define `arity (get-arity (for (a args) (symbol-name a))))
   (define `gname (gen-native-name name flags))
   (define `scope (if (filter "&public" flags) "x" "p"))
 
   ;; Make function name known *within* the body, unless it is a macro.
-  (define `env-in
+  (define `body-env
     (if is-macro
         env
-        (append { =name: (EFunc gname scope argc nil) } env)))
+        (append { =name: (EFunc scope gname arity) } env)))
 
   (or (c0-check-body n (first body) is-define)
 
-      (if is-macro
-          ;; check params
-          (vec-or
-           (for a args
-                (if (filter "...%" (symbol-name a))
-                    (gen-error a "macros cannot have rest (...) parameters"))))
-          ;; check name for conflict
-          (check-name name n))
-
       ;; compile function/macro body
-      (let ((macro-il (c0-lambda env-in args body))
-            (depth (current-depth env))
+      (let ((body-il (c0-lambda body-env args body))
+            (body-depth (depth.l (.. "." (current-depth env))))
             (is-define is-define)
             (is-macro is-macro)
-            (argc argc)
+            (arity arity)
             (scope scope)
             (name name)
-            (gname (if is-macro NoGlobalName gname)))
+            (gname gname))
 
         (define `defn
-          (EFunc gname scope argc (if is-macro
-                                      (cons depth (case macro-il
-                                                    ((ILambda body) body))))))
+          (if is-macro
+              (EMacro scope body-depth arity
+                      (case body-il ((ILambda node) node)))
+              (EFunc scope gname arity)))
 
-        (or (il-error-node macro-il)
+        (or (il-error-node body-il)
             (IEnv {=name: defn}
                   (and is-define
                        (not is-macro)
-                       (ICall "^fset" [(IString gname) macro-il])))))))
+                       (ICall "^fset" [(IString gname) body-il])))))))
+
 
 ;; Dispatch to c0-def-symbol or c0-def-compound
 ;;
@@ -610,15 +668,12 @@
          ((PQQuote n subform)
           (c0-def2 env n subform flags body is-define 1))))
 
-   ;; get NAME, ARGS
+   ;; get NAME, PARAMS
    (case what
-     ((PSymbol n name)
-      (c0-def-symbol env n name flags body is-define is-macro))
-
-     ((PList list-n forms)
-      (case (first forms)
+     ((PList list-n [name-form ...params])
+      (case name-form
         ((PSymbol sym-n name)
-         (c0-def-compound env list-n name (rest forms) flags body
+         (c0-def-compound env list-n name params flags body
                           is-define is-macro))
 
         (name-form
@@ -627,154 +682,59 @@
                        def-or-decl macro-tick))))
 
      (else
-      ;; "missing/invalid FORM in ..."
-      (err-expected "L S" what pos "FORM" "(%s %sFORM ...)"
-                    def-or-decl macro-tick)))))
+      (if what
+          (c0-def-target env what flags body is-define is-macro)
+
+          ;; "missing/invalid FORM in ..."
+          (err-expected "L P" what pos "FORM" "(%s %sFORM ...)"
+                        def-or-decl macro-tick))))))
 
 
-;; Break args into WHAT, FLAGS, and BODY.  Handle INBLOCK.
+;; Return IL for a `define` or `declare` form.
 ;;
 (define `(c0-def env sym args is-define)
   (c0-def2 env (form-index sym) (first args)
-           (get-flags args 1) (skip-flags args 1)
+           (get-flags args) (skip-flags args)
            is-define nil))
 
-(define (ml.special-define env sym args)
+(define (M.define env sym args)
   (c0-def env sym args 1))
 
-(define (ml.special-declare env sym args)
+(define (M.declare env sym args)
   (c0-def env sym args nil))
 
 
-;; This is supplied by modules that are not strict dependencies, in order to
-;; avoid sprawling/circular dependencies.
-(declare (get-module name base private) &public)
-
-(data Mod
-  &public
-  ;; ID = string to be passed to ^R
-  ;; ENV = exported environment entries
-  (ModSuccess &word id &list env)
-  (ModError message))
+;;--------------------------------
+;; Symbol: record constructor name
+;;--------------------------------
 
 
-;; (require STRING [&private])
+;; Return the value of a constructor name: an equivalent lambda.
 ;;
-;; Emit code to call REQUIRE, and add the module's exported symbols to the
-;; current environment.
-;;
-(define (ml.special-require env sym args)
-  (define `module (first args))
-  (define `flags (get-flags args 1))
-  (define `body (skip-flags args 1))
-  (define `mod-name (string-value module))
-  (define `read-priv (filter "&private" flags))
-
-  (or
-   (if body
-       (gen-error (first body) "too many arguments to require"))
-
-   (case module
-     ((PString _ name)
-      (let ((o (get-module name *compile-file* read-priv))
-            (module module))
-        (case o
-          ((ModError message)
-           (gen-error module "require: %s" message))
-          ((ModSuccess id exports)
-           (define `arg (IConcat [(IString id) (ICrumb "require" id)]))
-           (IEnv exports (ICall "^R" [arg]))))))
-     (else
-      (err-expected "Q" module sym "STRING" "(require STRING)")))))
+(define (c0-ctor env sym encs)
+  (define `args
+    (for (i (indices encs))
+      (PSymbol 0 (.. "a" i))))
+  (c0-lambda env args [ (PList 0 (cons sym args)) ]))
 
 
-;; c0-block-cc: Compile a vector of forms, calling `k` with results.
-;;
-;;   FORMS = vector of forms
-;;   K = fuction to call: (k new-env nodes)
-;;   ENV = current environment
-;;   RESULTS = results (not including previous compiled form)
-;;   O = result of compiling previous form EXCEPT the first time
-;;       this function is called, when it is nil.
-;;
-(define (c0-block-cc env forms k ?results ?o)
-  (define `new-results
-    (concat results (if o (concat " " [o]))))
-
-  (case o
-    ((IEnv bindings node)
-     (c0-block-cc (append bindings env) forms k results node))
-
-    (else
-     (if forms
-         (c0-block-cc env (rest forms) k new-results
-                      (c0 (first forms) env))
-         (k env (filter-out NoOp new-results))))))
+;;--------------------------------
+;; (begin STRING [&private])
+;;--------------------------------
 
 
-;; Compile a vector of forms as a block (each expression may modiy
-;; the environment for subsequent expressions). Return a single IL node.
-;;
-(define (c0-block forms env)
-  &public
-  (c0-block-cc env
-               forms
-               (lambda (env results)
-                 (if (word 2 results)
-                     (IBlock results)
-                     (or (first results)
-                         NoOp)))))
-
-
-(define (ml.special-begin env sym args)
+(define (M.begin env sym args)
   (c0-block args env))
 
 
 ;;--------------------------------
-;; dictionaries
+;; `EXPR   [quasi-quoting]
 ;;--------------------------------
 
-;; Compile a form and encode its IL value as a dictionary key.
-(define (c0-dict-key form env)
-  (let ((node (il-demote (c0 form env))))
-    (or (case node
-          ((ICall name args)
-           (if (eq? name "^d")
-               (ICall "^k" args))))
-        (il-subst "%" "!8" node))))
-
-
-(define (c0-D env n pairs)
-  (define `il-pairs
-    (foreach
-     pair pairs
-     (define `key (dict-key pair))
-     (define `value (dict-value pair))
-     (define `key-node
-       (case key
-         ;; {symbol: ...} is treated as {"symbol": ...}
-         ;; Note: symbols cannot contain "%"
-         ((PSymbol n name)
-          (if (filter "=%" name)
-              (c0-dict-key (PSymbol n (patsubst "=%" "%" name)) env)
-              (IString (demote name))))
-         (else
-          (c0-dict-key key env))))
-     (define `value-node
-       (il-demote (c0 value env)))
-
-     [(il-concat [ key-node (IString "!=") value-node ])]))
-
-  (il-concat (intersperse (IString " ") il-pairs)))
-
-
-;;--------------------------------
-;; quasi-quoting
-;;--------------------------------
 
 ;; A quasi-quoted form evaluates (at run time) to a form value.
-;; Quasi-quoted forms can contain un-quoted expressions, which are
-;; evaluated at run-time (presumably to a valid form).
+;; Quasi-quoted forms can contain un-quoted expressions, which are evaluated
+;; at run-time (presumably to a valid form).
 ;;
 ;; Quasi-quoting code must make *some* assumptions about how data
 ;; constructors work.  In order to minimize those, we use the constructors
@@ -788,6 +748,7 @@
 (define `QQS
   "*!*")
 
+
 ;; TEMPLATE = form encoding QQS as a child
 ;; SUB = IL node describing child/children
 ;;
@@ -796,14 +757,14 @@
   ;; IString nodes.
   (define `(replace from-str to-il)
     (il-concat (intersperse to-il
-                            (for a (split from-str template)
-                                 (IString a)))))
+                            (for (a (split from-str template))
+                              (IString a)))))
 
   (if (findstring QQS template)
       (replace QQS sub)
       (if (findstring [QQS] template)
           (replace [QQS] (il-demote sub))
-          (PError 0 (concat "c0-qq-form: template='" template "'")))))
+          (PError 0 (.. "c0-qq-form: template='" template "'")))))
 
 
 ;; Expand a single form within a quasiquoted expression.
@@ -820,10 +781,10 @@
 
     ((PList n children)
      (define `il-children
-       (for c children
-            (case c
-              ((PSplice n expr) (c0 expr env))
-              (else (il-demote (c0-qq env c nest))))))
+       (for (c children)
+         (case c
+           ((PSplice n expr) (c0 expr env))
+           (else (il-demote (c0-qq env c nest))))))
 
      (c0-qq-form (PList n QQS)
                  (il-concat (intersperse (IString " ") il-children))))
@@ -833,34 +794,6 @@
 
     (else
      (IString form))))
-
-
-(define (c0-error form)
-  (define `msg
-    (case form
-      ((PUnquote n sub)
-       "unquote (,) outside of a quasiquoted (`) form")
-      ((PSplice n sub)
-       "splice (,@) outside of a quasiquoted (`) form")
-      (else
-       "bad AST node: %q")))
-  (gen-error form msg form))
-
-
-;; c0: compile an expression.  Return IL.  (see c0-block)
-;;
-(define (c0 form env)
-  &public
-  (case form
-    ((PSymbol n value) (c0-S env form value (resolve form env)))
-    ((PString n value) (IString value))
-    ((PList n subforms) (c0-L env n (first subforms) (rest subforms)
-                              (resolve (first subforms) env)))
-    ((PDict n pairs) (c0-D env n pairs))
-    ((PQuote n subform) (IString subform))
-    ((PQQuote n subform) (c0-qq env subform))
-    ((PError n code) form)
-    (else (c0-error form))))
 
 
 ;; Compile a list of forms, returning [ENV-OUT ...NODES].

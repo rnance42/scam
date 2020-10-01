@@ -12,12 +12,12 @@
     (error "promote/demote not working"))
 
 (set-native "GG" "$")
-(expect "simple" (flavor "GG"))
-(expect "$" (value "GG"))
+(expect "simple" (native-flavor "GG"))
+(expect "$" (native-value "GG"))
 
 (set-native-fn "FF" "$")
-(expect "recursive" (flavor "FF"))
-(expect "$" (value "FF"))
+(expect "recursive" (native-flavor "FF"))
+(expect "$" (native-value "FF"))
 
 (expect "" (eq? "" "a"))
 (expect "" (eq? "a" ""))
@@ -50,8 +50,19 @@
 
 (expect "a % a" (vec-intersect "a b % d a" "c % a"))
 
+(expect (permute "0 1" nil "b") "b0 b1")
+(expect (permute "0 1" 0 "b") "b00 b01 b10 b11")
+(expect (permute "0 1" 00 "b") "b000 b001 b010 b011 b100 b101 b110 b111")
+
+(expect "2 3 4" (urange 2 4))
+(expect "9 10 11" (urange 9 11))
+(expect "99 100 101 102" (urange 99 102))
+
 (expect "" (indices ""))
 (expect [1 2 3] (indices "a b c"))
+(foreach (n [9 10 102])
+  (let ((r (urange 1 n)))
+    (expect r (indices r))))
 
 (expect "2" (numeric? "2"))
 (expect "-1" (numeric? "-1"))
@@ -82,13 +93,33 @@
 (expect "" (word-index? -1))
 (expect "" (word-index? 0))
 
-(expect "[1 \"a b\"] --> 1 a!0b" (sprintf "%q --> %s" [1 "a b"] [1 "a b"]))
-(expect "nada" (sprintf "nada" "ignored"))
-(expect "!P!. a !\t !0 x" (sprintf "!P!.%s!0%sx" " a !\t " " " "ignored"))
-(expect "a%b%c" (sprintf "a%%b%s" "%c"))
-(expect "\"\"A" (sprintf "%qA" ""))
-(expect "abc" (sprintf "%s" "abc" "def"))
+;; vsprintfx
 
+(define (test-fmt c s)
+  (cond ((filter "a" c) (.. "<" s ">"))
+        ((filter "b" c) (.. "[" s "]"))))
+
+(expect "< ! >[]" (vsprintfx "%a%b" [" ! "] "a b" test-fmt))
+(expect "%%a" (vsprintfx "%%%a" ["!" " "] nil test-fmt))
+
+;; vsprintf / sprintf
+
+(expect "x" (vsprintf "%s" ["x" nil nil nil nil]))
+(expect "" (vsprintf "" ["x" nil nil nil nil]))
+
+(expect "! \t!" (sprintf "! \t!"))
+(expect "! \t!" (sprintf "%s" "! \t!"))
+(expect "! \t!" (sprintf "%s%s" "! " "\t!"))
+(expect "! \t!" (sprintf "!%s\t%s" " " "!"))
+(expect "" (sprintf "" "ignored"))
+(expect "x" (sprintf "x" "ignored"))
+(expect "x" (sprintf "x%s%s"))
+;; Unknown format code
+(expect "%?" (sprintf "%?"))
+;; %%
+(expect "%s-" (sprintf "%%s%s" "-"))
+;; %q
+(expect "[1 \"!\"]" (sprintf "%q" [1 "!"]))
 
 (expect "" (reverse ""))
 (expect [3 2 1] (reverse [1 2 3]))
@@ -145,8 +176,9 @@
 
 (expect "" (symbol? ""))
 (expect "a!" (symbol? "a!"))
-(expect "" (symbol? "a!0b"))
+(expect "a!0b" (symbol? "a!0b"))
 (expect "" (symbol? "a(b)"))
+(expect "" (symbol? "a:"))
 
 
 ;; format
@@ -163,7 +195,7 @@
 
 (format-add (lambda (str)
               (if (filter "!-!-%" (word 1 str))
-                  (concat "[" str "]"))))
+                  (.. "[" str "]"))))
 
 (expect "[!-!-abc]" (format "!-!-abc"))
 
@@ -188,11 +220,11 @@
 
 (expect "a b c" (uniq "a a b a c a b"))
 
-(expect ["" "abc" ""]   (split "/x/" "/x/abc/x/"))
-(expect ["" "" "" ""]   (split "a" "aaa"))
-(expect ["a \t" "" "}"] (split "{" "a \t{{}"))
-(expect ["" " \t{{}"] (split "a" "a \t{{}"))
-
+(expect ["" "x" ""] (split "/x/" "/x/x/x/"))
+(expect ["" "" "" ""] (split "a" "aaa"))
+(expect ["!!!" "!!" "" "!" "" "" "!"] (split " " "!!! !!  !   !"))
+(expect ["   " "  " "" " " "" "" " "] (split "!" "   !  !! !!! "))
+(expect ["!!x!" "!x"] (split "a" "!!x!a!x"))
 
 (expect 1 (1+ 0))
 (expect 2  (1+ 1))
@@ -213,7 +245,7 @@
 (define mprefix "")
 
 (define (mtest a b c)
-  (concat mprefix c b a))
+  (.. mprefix c b a))
 
 (memoize (native-name mtest))
 
@@ -252,13 +284,18 @@
 (expect 0 (index-of ["!" " " "\t"] "a"))
 
 ;; foldl
-(expect "((0!)2)" (foldl (lambda (a b) (concat "(" a b ")")) 0 ["!" 2]))
-(expect "0" (foldl (lambda (a b) (concat "(" a b ")")) 0 []))
-(expect "(01)" (foldl (lambda (a b) (concat "(" a b ")")) 0 [1]))
+(expect "((0!)2)" (foldl (lambda (a b) (.. "(" a b ")")) 0 ["!" 2]))
+(expect "0" (foldl (lambda (a b) (.. "(" a b ")")) 0 []))
+(expect "(01)" (foldl (lambda (a b) (.. "(" a b ")")) 0 [1]))
 
 ;; foldr
-(expect "(!(20))" (foldr (lambda (a b) (concat "(" a b ")")) 0 ["!" 2]))
+(expect "(!(20))" (foldr (lambda (a b) (.. "(" a b ")")) 0 ["!" 2]))
 
 ;; intersperse
 (expect [1 9 "cat dog" 9 3] (intersperse 9 [1 "cat dog" 3]))
 (expect ["a b c"] (intersperse 9 ["a b c"]))
+
+;; repeat-words
+(expect nil (repeat-words "1 2 3" 0))
+(expect nil (repeat-words "1 2 3" -1))
+(expect ". . . ." (repeat-words "." 4))

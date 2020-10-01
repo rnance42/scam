@@ -64,20 +64,23 @@ install: ; cp bin/scam `which scam`
 
 clean: ; rm -rf .out .scam */.out */.scam
 
-bench: ; bin/scam --obj-dir .out/ -x bench.scm $(ARGS)
+bench: ; bin/scam --build-dir .out/ -- bench.scm $(ARGS)
 
 $$%: ; 	@true $(info $$$* --> "$(call if,,,$$$*)")
 
 #----------------------------------------------------------------
 # Docs
 
-DOCLIBS = $(patsubst %,%.scm,core getopts io math peg string utf8 memo) intrinsics.txt
+SCAMDOC = examples/scamdoc.scm
+
+DOCLIBS = $(patsubst %,%.scm,compile core getopts io math peg repl string utf8 memo) \
+          intrinsics.txt
 
 docs: .out/libs.txt
 
 promote-docs: .out/libs.txt ; cp .out/libs.txt libraries.md
 
-.out/libs.txt: $(DOCLIBS) ; bin/scam examples/scamdoc.scm -- -o $@ $(DOCLIBS)
+.out/libs.txt: $(DOCLIBS) $(SCAMDOC) ; bin/scam $(SCAMDOC) -- -o $@ $(DOCLIBS)
 
 #----------------------------------------------------------------
 
@@ -122,12 +125,13 @@ $C/scam: *.scm $B.ok
 	$(_@) test -f $@
 
 # v1 tests:
-#  run: validates code generation
+#  run: validates code generation, object file loading, etc.
 #
-$A.ok: $A/scam test/run.scm
+$A.ok: $A/scam test/*.scm
 	@ echo '... test $A/scam'
-	$(_@) SCAM_LIBPATH='.' $A/scam -o .out/ta/run test/run.scm --boot
-	$(_@)    .out/ta/run
+	$(_@) SCAM_LIBPATH='.' $A/scam -o .out/ta/run test/run.scm --boot --build-dir '.out/ta/scam build dir/'
+	$(_@) .out/ta/run
+	$(_@) $(call guard,AOK1,[[ -d '.out/ta/scam build dir/' ]])
 	$(_@) touch $@
 
 
@@ -144,15 +148,16 @@ $B-o.ok: $B/scam test/*.scm
 	@ echo '... test scam -o EXE FILE'
 	$(_@) $B/scam -o .out/tb/using test/using.scm
 	$(_@) .out/tb/using
-	$(_@) $B/scam -o .out/tb/dash-o test/dash-o.scm
+	$(_@) $B/scam -o .out/tb/dash-o --build-dir '.out/tb/a b c/' test/dash-o.scm
+	$(_@) $(call guard,BOK1,[[ -d '.out/tb/a b c/' ]])
 	$(_@) .out/tb/dash-o 1 2 > .out/tb/dash-o.out
-	$(_@) $(call guard,BO2,grep 'result=11:2' .out/tb/dash-o.out)
+	$(_@) $(call guard,BOK2,grep 'result=11:2' .out/tb/dash-o.out)
 	$(_@) touch $@
 
 
 $B-x.ok: $B/scam test/*.scm
-	@ echo '... test scam -x FILE ARGS...'
-	$(_@) SCAM_TRACE='%conc:c' $B/scam --obj-dir .out/tbx/ -x test/dash-x.scm 3 'a b' > .out/tb/dash-x.out
+	@ echo '... test scam FILE ARGS...'
+	$(_@) SCAM_TRACE='%conc:c' $B/scam --build-dir .out/tbx/ -- test/dash-x.scm 3 'a b' > .out/tb/dash-x.out
 	$(_@) $(call guard,BX1,grep '9:3:a b' .out/tb/dash-x.out)
 	$(_@) $(call guard,BX2,grep ' 4 .*conc' .out/tb/dash-x.out)
 	$(_@) touch $@
@@ -160,7 +165,7 @@ $B-x.ok: $B/scam test/*.scm
 
 $B-e.ok: $B/scam
 	@ echo '... test scam -e EXPR'
-	$(_@) $B/scam --obj-dir .out/tbx -e '(print [""])' -e '[""]' > .out/tb/dash-e.out
+	$(_@) $B/scam --build-dir .out/tbx -e '(print [""])' -e '[""]' > .out/tb/dash-e.out
 	$(_@) $(call guard,BE1,cat .out/tb/dash-e.out | tr  '\n' '/' | grep '\!\./\[\"\"\]' -)
 	$(_@) touch $@
 

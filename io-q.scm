@@ -6,16 +6,36 @@
   (dir (current-file)))
 
 (define TMPDIR
-  (define `test-dir (assert (value "SCAM_DIR")))
-  (concat (shell (concat "mktemp -d " test-dir "io-q.XXXX")) "/"))
+  (get-tmp-dir "io-q.XXX"))
 
-;; shell!
+(expect [TMPDIR] (filter "%/" [TMPDIR]))
 
-(expect "" (shell! "false"))
-(expect "\n" (shell! "echo"))
-;; When using sed we cannot distinguish between a line ending in newline and
-;; one not ending in newline:
-(expect "  \t \n \n" (shell! "echo $'  \\t \\n '"))
+;; io-vsprintf
+
+(expect "echo './-a'\\''a' '-b' c"
+        (io-vsprintf "echo %F %A %s" ["-a'a" "-b" "c"]))
+
+;; io-sprintf
+
+(expect "echo 'a b' '' 'c d'"
+        (io-sprintf "echo %V" ["a b" "" "c d"]))
+(expect "echo "
+        (io-sprintf "echo %V" []))
+
+;; shell-lines
+
+(expect ["a b c"] (shell-lines "printf %A" "a b c"))
+(expect ["a b c" ""] (shell-lines "printf '%%b' %A" "a b c\\n"))
+(expect ["a b c" "" " "] (shell-lines "printf '%%b' %A" "a b c\\n\\n "))
+
+;; pipe
+
+(expect [0 "a b \n \n" ""] (pipe nil "printf '%b' 'a b \\n \\n'"))
+(expect [0 "" "a b \n \n"] (pipe nil "printf '%b' 'a b \\n \\n' >&2"))
+(expect [0 "a b \n" " c d"] (pipe nil "echo 'a b ' && echo -n ' c d' >&2"))
+(expect [0 "11\n22\n" ""] (pipe "1\n2\n" "sed 's/\\(.*\\)/\\1\\1/'"))
+(expect [0 "123" ""] (pipe "123" "cat"))
+(expect [1 "" ""] (pipe nil "false"))
 
 ;; write
 
@@ -23,27 +43,27 @@
 
 ;; write-file & read-file
 
-(define `thisfile (lastword MAKEFILE_LIST))
+(define `thisfile (lastword (native-var "MAKEFILE_LIST")))
 
 (define `test-string
-  (concat (string-from-bytecodes
-           (concat "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19"
-                   " 20 21 22 23 24 25 26 27 28 29 30 31 32 127"))
-          "\na¢€￦\n"
-          ;; <CR><LF> required special handling
-          "abc\x0d\nxyz"))
+  (.. (string-from-bytecodes
+       (._. "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19"
+            "20 21 22 23 24 25 26 27 28 29 30 31 32 127"))
+      "\na¢€￦\n"
+      ;; <CR><LF> required special handling
+      "abc\x0d\nxyz"))
 
-(expect (concat test-string "X")
-        (let ((tmpfile (concat TMPDIR "rwtest")))
+(expect (.. test-string "X")
+        (let ((tmpfile (.. TMPDIR "rwtest")))
           (expect nil (write-file tmpfile test-string))
-          (shell (concat "echo -n X >> " tmpfile))
+          (shell (.. "echo -n X >> " tmpfile))
           (read-file tmpfile)))
 
-(define `non-file (concat TMPDIR "io-q-dir"))
-(shell (concat "mkdir -p " (quote-sh-arg non-file)))
+(define `non-file TMPDIR)
+(shell (.. "mkdir -p " (quote-sh-arg non-file)))
 (expect 1 (see "directory" (write-file non-file "xyz")))
 ;; ensure it cleaned up the temp file
-(expect nil (file-exists? (concat non-file "_[tmp]")))
+(expect nil (file-exists? (.. non-file "_[tmp]")))
 
 ;; read-file
 
@@ -59,33 +79,39 @@
 
 (define io-q (concat-vec io-q-lines "\n"))
 
-(define `test-file (concat SOURCEDIR "test/io-q.txt"))
+(define `test-file (.. SOURCEDIR "test/io-q.txt"))
 
 (expect io-q (read-file test-file))
 (expect io-q-lines (read-lines test-file))
 (expect (wordlist 2 5 io-q-lines) (read-lines test-file 2 5))
 
-(expect nil (read-lines (concat SOURCEDIR "does-not-exist")))
+(expect nil (read-lines (.. SOURCEDIR "does-not-exist")))
 
 ;; file-exists?
 
 (expect (current-file) (file-exists? (current-file)))
-(expect nil (file-exists? (concat SOURCEDIR "does-not-exist")))
+(expect nil (file-exists? (.. SOURCEDIR "does-not-exist")))
 
 ;; cp-file
 
 (expect 1 (see "No such" (cp-file "does-not-exist" "shall-not-exist")))
 (expect nil (file-exists? "shall-not-exist"))
-(expect nil (cp-file test-file (concat test-file ".2")))
-(expect io-q (read-file (concat test-file ".2")))
+(expect nil (cp-file test-file (.. test-file ".2")))
+(expect io-q (read-file (.. test-file ".2")))
 
+;; cp-file-atomic
+
+(expect 1 (see "No such" (cp-file-atomic "does-not-exist" "shall-not-exist")))
+(expect nil (file-exists? "shall-not-exist"))
+(expect nil (cp-file-atomic test-file (.. test-file ".2")))
+(expect io-q (read-file (.. test-file ".2")))
 
 ;; hash-file & hash-files
 
-(define TMP_XYZ (concat TMPDIR "io-q-hash"))
+(define TMP_XYZ (.. TMPDIR "io-q-hash"))
 (write-file TMP_XYZ "xyz")
 ;; Exercise multiple files and space within a file name.
-(define TMP_XYZ2 (concat TMPDIR " io-q! hash"))
+(define TMP_XYZ2 (.. TMPDIR " io-q! hash"))
 (write-file TMP_XYZ2 "xyz2")
 
 (expect nil *hash-cmd*)
@@ -103,7 +129,7 @@
         (subst "d3b07384d113edec" "ok"   ;; md5
                "f1d2d2f924e986ac" "ok"   ;; shasum, sha1sum
                "9aa85db27d6a074c" "ok"   ;; Windows subsystem for Linux(?)
-               (hash-output "echo foo")))
+               (hash-output "echo %A" "foo")))
 
 ;; blob functions
 
@@ -142,12 +168,25 @@
 
 (expect "foo" (escape-path "foo"))
 (expect "+Tfoo" (escape-path "~foo"))
-(expect "+/foo" (escape-path "/foo"))
+(expect "+@foo" (escape-path "/foo"))
 (expect "+./foo" (escape-path "../foo"))
 
 (define `(escape-rt str)
   (expect str (unescape-path (escape-path str)))
-  (expect 1 (words (escape-path (concat "x" str "x")))))
+  (expect 1 (words (escape-path (.. "x" str "x")))))
 
 (escape-rt "/../..a$*!#//x")
 (escape-rt "+ !#\\$:;=%~*?|\t\n")
+
+;; get-tmp-dir
+
+(expect (or (native-var "SCAM_TMP") ".scam/")
+        (get-tmp-dir))
+
+(let ((tmp (get-tmp-dir "io-q.XXX")))
+  (assert (filter-out "/" tmp))
+  (expect 0 (first (pipe nil "ls %F" tmp)))
+  (shell (.. "rm -rf " (quote-sh-file tmp))))
+
+;; On success, clean up...
+(shellf "rm -rf %A" TMPDIR)

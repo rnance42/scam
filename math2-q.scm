@@ -13,7 +13,7 @@
 ;; the last digit in REF.
 ;;
 (define (uf-match ref plus-or-minus out)
-  (let ((delta (uf-carry (+_+ (patsubst "%" 0 ref) plus-or-minus))))
+  (let ((delta (uf-carry (._. (patsubst "%" 0 ref) plus-or-minus))))
     (if (or (uf-lt? (uf-add ref delta) out)
             (uf-lt? out (uf-sub ref delta)))
         (begin
@@ -136,6 +136,11 @@
 (expect 1 (psrch (UV 29) (d2u [30 03 02 01]) nil))
 (expect 3 (psrch (UV 01) (d2u [30 03 02 01]) nil))
 (expect 4 (psrch (UV 001) (d2u [30 03 02 01]) nil))
+
+;; m-powers
+
+(expect 116 (words cached-m-powers))
+(expect 233 (words (subst 0 " 0" (lastword cached-m-powers))))
 
 ;; uf-log-fr
 
@@ -262,7 +267,7 @@
 (uf±1 (UV 099999990700596) (uf-exp-med (UV 2302585) (nzeros 15)))
 
 (define `(exp-AvsB n dd)
-  (uf±1 (wordlist 1 n (>>1 (uf-exp-small (UV dd) (+_+ "0 0" (nzeros n)))))
+  (uf±1 (wordlist 1 n (>>1 (uf-exp-small (UV dd) (._. "0 0" (nzeros n)))))
        (uf-exp-med (>>1 (UV dd)) (nzeros n))))
 
 (exp-AvsB 16 01)

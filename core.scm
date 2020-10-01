@@ -8,12 +8,9 @@
 
 ;; Return 1 if A and B are equal, nil otherwise.
 ;;
-(define (eq? a b)
+(define `(eq? a b)
   &public
-  (define `aa (concat 1 a))
-  (define `bb (concat 1 b))
-  (if (findstring aa (findstring bb aa))
-      1))
+  (findstring (subst (.. b 0) 1 (.. a 0)) 1))
 
 ;; Return A.
 ;;
@@ -37,13 +34,13 @@
 ;;
 (define (cons item vec)
   &public
-  (concat (demote item) (if vec " ") vec))
+  (.. (demote item) (if vec " ") vec))
 
 ;; Add ITEM to end of vector VEC.
 ;;
 (define (conj vec item)
   &public
-  (concat vec (if vec " ") (demote item)))
+  (.. vec (if vec " ") (demote item)))
 
 ;; Return the last item in vector VEC.
 ;;
@@ -66,23 +63,23 @@
 ;;
 (define (butlast vec)
   &public
-  (wordlist 2 (words vec) (concat "X " vec)))
+  (wordlist 2 (words vec) (.. "X " vec)))
 
 ;; Return a vector of all members of VEC for which (FN member) is non-nil.
 ;;
 (define (select-vec fn list)
   &public
-  (filter-out "!" (foreach dx list
-                           (if (fn (promote dx)) dx "!"))))
+  (filter-out "!" (foreach (dx list)
+                    (if (fn (promote dx)) dx "!"))))
 
 ;; Return a list of words in LIST for which `(FN <word>)` is non-nil.
 ;;
 (define (select-words fn list)
   &public
   ;; wrap in outer 'foreach' to eliminate redundant spaces
-  (foreach a
-           (foreach x list (if (fn x) x))
-           a))
+  (foreach (a (foreach (x list)
+                (if (fn x) x)))
+    a))
 
 ;; Return the first non-nil member of VEC.
 ;;
@@ -94,9 +91,9 @@
 (define (vec-filter fname pat v)
   (if (findstring "%" pat)
       ;; escaping would be expensive
-      (subst "!P" "%" (call fname (subst "%" "!P" pat)
-                                  (subst "%" "!P" v)))
-      (call fname pat v)))
+      (subst "!P" "%"
+             (native-call fname (subst "%" "!P" pat) (subst "%" "!P" v)))
+      (native-call fname pat v)))
 
 
 ;; Return entries in vector A that also appear in vector B.
@@ -115,21 +112,63 @@
   (vec-filter "filter-out" b a))
 
 
-(define (indices-b max len lst)
-  (if (filter max len)
-      len
-      (concat len " " (indices-b max (words lst) (concat ". " lst)))))
+;; Return a list of all possible concatenations words from LST.
+;;
+;; ZZ = a string of 0's that determine how long wach concatenation is.
+;;      "" => 1 word, "0" => 2 word, "00" => 3 words, ...
+;; PREFIX = a string to be prepended to each resulting concatenation.
+;;
+;; The list is ordered by the indexes into LST.  Words that appear earlier
+;; in the concatenations are more significant.
+;;
+(define (permute lst zz ?prefix)
+  &public
+  (if (findstring 00 zz)
+      (foreach (n lst)
+        (permute lst (subst "0x" "" (.. zz "x")) (.. prefix n)))
+      (if zz
+          (foreach (n lst)
+            (addprefix (.. prefix n) lst))
+          (addprefix prefix lst))))
 
-(define (indices-a max)
-  (if (filter-out 0 max)
-      (indices-b max 1 ". .")))
+
+(define `digits "0 1 2 3 4 5 6 7 8 9")
+(define `nzdigits "1 2 3 4 5 6 7 8 9")
+
+
+(define (urange-x max lst zz)
+  (if (word max lst)
+      lst
+      (urange-x max
+                (._. lst (foreach (n nzdigits)
+                           (permute digits zz n)))
+                (.. zz 0))))
+
+
+;; Return a list of integers in the range MIN..MAX (inclusive).
+;;
+;; MIN is a positive integer.
+;; MAXi is a non-negative integer.
+;;
+;; MIN and MAX must be in "plain" decimal format (no scientific notation or
+;; decimals).
+;;
+;; Memory requirements and execution time are proportional to MAX, not
+;; (MAX - MIN).
+;;
+(define (urange min max)
+  &public
+  (wordlist min max (urange-x max nzdigits nil)))
+
 
 ;; Return a vector of the indices (1, 2, ...) of words in word list (or vector)
 ;; LST.
 ;;
-(define `(indices lst)
+(define (indices lst)
   &public
-  (indices-a (words lst)))
+  (if (word 10 lst)
+      (urange 1 (words lst))
+      (wordlist 1 (words lst) nzdigits)))
 
 
 ;; Reverse a list in groups sized by powers of ten.  Simpler implementations
@@ -145,23 +184,23 @@
   (define `z/10
     (patsubst "0%" "%" z))
   (define `(1- n)
-    (word n "0 1 2 3 4 5 6 7 8 9"))
+    (word n digits))
   (define `(group prefix)
-    (wordlist (concat (1- prefix) z+1)
-              (concat prefix z)
+    (wordlist (.. (1- prefix) z+1)
+              (.. prefix z)
               list))
 
   (if list
       (if z
-          (foreach p [10 9 8 7 6 5 4 3 2 1] (rev-by-10s (group p) z/10))
-          (foreach p [10 9 8 7 6 5 4 3 2 1] (word p list)))))
+          (foreach (p [10 9 8 7 6 5 4 3 2 1]) (rev-by-10s (group p) z/10))
+          (foreach (p [10 9 8 7 6 5 4 3 2 1]) (word p list)))))
 
 
 ;; Detect length of list to the nearest order of magnitude.
 ;; 0..10 items => "";  11-100 => "0";  101..1000 => "00", ...
 (define (rev-zeroes list z)
-  (if (word (concat 1 z 1) list)
-      (rev-zeroes list (concat 0 z))
+  (if (word (.. 1 z 1) list)
+      (rev-zeroes list (.. 0 z))
       z))
 
 ;; Reverse word list (or vector) LIST.
@@ -209,7 +248,7 @@
         [1 value]
         ;; too deeply nested
         (if (pred value)
-            (while-0 pred do (do value) (concat "i" k0))
+            (while-0 pred do (do value) (.. "i" k0))
             ;; done (continue=0)
             [0 value])))
 
@@ -224,7 +263,7 @@
             (if (filter 1 level)
                 ;; We're at the top (haven't been called by a higher level) so
                 ;; expand the recursion depth.
-                (while-N pred do o (concat level " " 0) "ii")
+                (while-N pred do o (.. level " " 0) "ii")
                 ;; return to higher level
                 o)
 
@@ -234,7 +273,7 @@
                          (while-N pred do o (rest level) nil)
                          (while-0 pred do val nil))
                      level
-                     (concat "i" k)))))
+                     (.. "i" k)))))
 
   (define (while pred op initial)
     (if (pred initial)
@@ -276,24 +315,23 @@
 ;;
 (define (append ?a ?b ?c ?d ?e ?f ?g ?h ...others)
   &public
-  (strip (concat a " " b " " c " " d " " e " " f " " g " " h " "
-                 (if others (promote others)))))
+  (strip (._. a b c d e f g h (if others (promote others)))))
 
 
 ;; Return the key portion of PAIR.
 ;;
-(define (dict-key pair)
+(define `(dict-key {=key: _})
   &public
-  (promote (subst "!8" "%" (word 1 (subst "!=" " " pair)))))
+  key)
 
 ;; Return the value portion of PAIR.
 ;;
-(define `(dict-value pair)
+(define `(dict-value {=_: value})
   &public
-  (nth 2 (subst "!=" " " pair)))
+  value)
 
 (define `(dict-matches key dict)
-  (filter (concat (subst "%" "!8" [key]) "!=%") dict))
+  (filter (.. (subst "%" "!8" [key]) "!=%") dict))
 
 ;; Return the first pair matching KEY.  Unlike `dict-get`, this indicates
 ;; whether a match was found (every pair is non-nil).
@@ -314,14 +352,14 @@
 ;;
 (define (dict-remove key dict)
   &public
-  (filter-out (concat (subst "%" "!8" [key]) "!=%") dict))
+  (filter-out (.. (subst "%" "!8" [key]) "!=%") dict))
 
 ;; Bind KEY to VALUE in dictionary DICT, removing other entries for KEY.
 ;;
 (define (dict-set key value dict)
   &public
-  (foreach p (concat (subst "%" "!8" [key]) "!=")
-           (concat p [value] " " (filter-out (concat p "%") dict))))
+  (foreach (p (.. (subst "%" "!8" [key]) "!="))
+    (.. p [value] " " (filter-out (.. p "%") dict))))
 
 ;; Remove pairs in a dictionary that are preceded by pairs that share the
 ;; same KEY.
@@ -352,9 +390,9 @@
 ;;
 (define (dict-collate pairs)
   &public
-  (foreach p (word 1 (subst "!=" "!= " (word 1 pairs)))
-           (append (concat p [(filtersub (concat p "%") "%" pairs)])
-                   (dict-collate (filter-out (concat p "%") pairs)))))
+  (foreach (p (word 1 (subst "!=" "!= " (word 1 pairs))))
+    (append (.. p [(filtersub (.. p "%") "%" pairs)])
+            (dict-collate (filter-out (.. p "%") pairs)))))
 
 
 (declare (format value))
@@ -363,7 +401,7 @@
 ;; Return STR if it should be displayed as a symbol (versus a quoted
 ;; string) in a dictionary.
 (define (symbol? str)
-  (and (findstring str (promote (word 1 str)))
+  (and (findstring str (word 1 str))
        (not (or (findstring "\n" str)
                 (findstring "(" str)
                 (findstring ")" str)
@@ -371,6 +409,10 @@
                 (findstring "]" str)
                 (findstring "," str)
                 (findstring ";" str)
+                (findstring ":" str)
+                (findstring "'" str)
+                (findstring "`" str)
+                (findstring "\"" str)
                 (findstring "!=" str)))
        str))
 
@@ -379,21 +421,16 @@
 ;;
 (define (format-dict h)
   (define `pairs
-    (foreach e h
-             (begin
-               (define `key (dict-key e))
-               (define `key-fmt (or (symbol? key)
-                                    (format key)))
-               (define `value (dict-value e))
-               [(concat key-fmt ": " (format value))])))
+    (foreach ({=key: value} h)
+      [(.. (or (symbol? key) (format key)) ": " (format value))]))
 
   (define `(dict-elem w ndx)
     (nth ndx (subst "!=" " " w)))
 
   (if (findstring "!=" h)
-      (if (eq? h (foreach w h
-                          {(dict-elem w 1): (dict-elem w 2)} ))
-          (concat "{" (concat-vec pairs ", ") "}"))))
+      (if (eq? h (foreach ({=k: v} h)
+                   {=k: v}))
+          (.. "{" (concat-vec pairs ", ") "}"))))
 
 
 ;; Extract members from a record, applying FUNC to them, appending the
@@ -409,7 +446,7 @@
 
   (if encodings
       (data-foreach func (rest encodings) (rest values)
-                    (concat accum (if accum " ") (func value e)))
+                    (.. accum (if accum " ") (func value e)))
       accum))
 
 
@@ -440,7 +477,7 @@
 
         (and pattern
              (eq? (strip record) (strip reconstructed))
-             (concat "(" ctor-name (if encodings " ") arg-text ")")))))
+             (.. "(" ctor-name (if encodings " ") arg-text ")")))))
 
 (define *format-funcs* nil)
 
@@ -451,9 +488,10 @@
   (set *format-funcs* (cons func *format-funcs*)))
 
 (define (format-custom str funcs)
+  (define `[fn ...others] funcs)
   (if funcs
-      (or ((first funcs) str)
-          (format-custom str (rest funcs)))))
+      (or (fn str)
+          (format-custom str others))))
 
 
 ;; Return a SCAM literal that evaluates to VALUE, using the "friendliest"
@@ -462,8 +500,8 @@
 (define (format str)
   &public
   (define `(format-vector str)
-    (if (eq? str (foreach w str (demote (promote w))))
-        (concat "[" (foreach w str (format (promote w))) "]")))
+    (if (eq? str (foreach (w str) (demote (promote w))))
+        (.. "[" (foreach (w str) (format (promote w))) "]")))
 
   (or (format-custom str *format-funcs*)
       (if (findstring "!" str)
@@ -474,8 +512,47 @@
                    (numeric? (subst " " "" str))))
           (format-vector str))
       (numeric? str)
-      (concat "\"" (subst "\\" "\\\\" "\"" "\\\"" "\n" "\\n" "\t" "\\t"
-                          "\x0d" "\\x0d" str) "\"")))
+      (.. "\"" (subst "\\" "\\\\" "\"" "\\\"" "\n" "\\n" "\t" "\\t"
+                      "\x0d" "\\x0d" str) "\"")))
+
+
+;; Split STR into multiple words after each "!%C" where C is a word
+;; in CODES, and convert each "!%C" to "!:C".
+;;
+(define (vsp-split codes str)
+  ;; Okay to pass NIL for C.
+  (define `(split c s)
+    (subst (.. "!%" (or c "%")) (.. "!:" c " ") s))
+
+  (split (word 1 codes)
+         (split (word 2 codes)
+                (if (word 3 codes)
+                    (vsp-split (nth-rest 3 codes) str)
+                    str))))
+
+
+;; Like `vsprintf`, but without any built-in notion of format
+;; codes.  Instead it accepts two additional arguments:
+;;
+;; CODES = list of supported format codes, e.g. "s q" for "%s" and "%q".\
+;; FMT-FN = a function that formats a value, given a format code.  It is
+;;    called as (FMT-FN CODE VALUE-VEC) where VALUE-VEC is a demoted value,
+;;    and returns a vector of strings (which will be concatenated).
+;;
+(define (vsprintfx fmt values codes fmt-fn)
+  &public
+  ;; Each field = "TEXT!:CODE", but last one may not have "!:CODE".
+  (define `fields
+    (subst "!%" "%" (vsp-split codes (subst "%" "!%" "!%!%" "%" [fmt]))))
+
+  (concat-vec
+   (foreach (w (join fields (addprefix "!:%" values)))
+     ;; W = "TEXT!:C!:%VALUE" or "TEXT!:C" or "TEXT!:%VALUE" or "TEXT"
+     ;; TEXT may be "".
+     (.. (word 1 (subst "!:" " !. " w))
+         (if (findstring "!:" (subst "!:%" nil w))
+             (fmt-fn (word 2 (subst "!:" " " (.. "x" w)))
+                     (word 2 (subst "!:%" " " w))))))))
 
 
 ;; Expand FMT, replacing escape sequences with values from vector VALUES,
@@ -487,21 +564,12 @@
 ;;
 (define (vsprintf fmt values)
   &public
+  (define `(vsp-format code value-vec)
+    (if (filter "q" code)
+        [(format (promote value-vec))]
+        value-vec))
 
-  (define `fields
-    (subst "%" " !%" " !% !%" "%" (concat "%s" [fmt])))
-
-  (concat-vec
-   (foreach w (join (concat "!. " values) fields)
-            (cond
-             ((findstring "!%s" w)
-              (subst "!%s" "" w))
-             ((findstring "!%q" w)
-              (cons (format (first (subst "!%q" "!. " w)))
-                    (word 2 (subst "!%q" "!. " w))))
-             ((findstring "!%" w)
-              ;; "!%x" => bad format string
-              (subst "!%" "[unknown % escape]%" w))))))
+  (vsprintfx fmt values "s q" vsp-format))
 
 
 ;; Like `vsprintf`, but values are provided as separate arguments.
@@ -516,7 +584,7 @@
 ;;
 (define (printf fmt ...values)
   &public
-  (info (vsprintf fmt values)))
+  (print (vsprintf fmt values)))
 
 
 ;; Compare A to B, and if unequal display diagnostics and terminate
@@ -538,7 +606,8 @@
                "Raw:\n"
                "A: " a "\n"
                "B: " b "\n")
-        (if (not (findstring "K" SCAM_DEBUG))
+        (if (findstring "K" SCAM_DEBUG)
+            (at-exit error 1)
             (error "")))))
 
 
@@ -569,7 +638,7 @@
   (assert-x cond (current-file-line)))
 
 
-;; Like `expect, but only the formatted versions of A and B are compared.
+;; Like `expect`, but only the formatted versions of A and B are compared.
 ;; This accommodates only minor differences in the concrete layout that do
 ;; not affect the meaning in some contexts.  For example, a record ending in
 ;; a `&list` member (that is empty) will have a trailing space when
@@ -580,7 +649,11 @@
   &public
   (expect-x (format a) (format b) (current-file-line)))
 
+
 ;; Return 1 if SUBSTR appears within STR.  Print a diagnostic otherwise.
+;; This is intended for use in unit tests, as follows:
+;;
+;;     (expect 1 (see SUBSTR STR))
 ;;
 (define (see substr str)
   &public
@@ -592,7 +665,8 @@
 
 (define (uniq-x lst)
   (if lst
-      (concat (word 1 lst) " " (uniq-x (filter-out (word 1 lst) (rest lst))))))
+      (.. (word 1 lst) " " (uniq-x (filter-out (word 1 lst) (rest lst))))))
+
 
 ;; Return the unique members of VEC *without* re-ordering.  The first
 ;; occurrence of each member is retains.  This can be applied to word lists
@@ -612,16 +686,14 @@
 ;;
 (define (split delim str)
   &public
-  ;; Ensure that the end or start of delim cannot overlap part of an escape
-  ;; sequence.  In an encoded string, "{" and "}" appear only in the
-  ;; following escape sequences: {L} {R} {s} {t} {}
-  (define `(enc str)
-    (or (subst "{" "{L" "}" "{R}" "{L" "{L}" " " "{s}" "\t" "{t}" str) "{}"))
-  (define `(dec str)
-    (subst "{}" "" "{t}" "\t" "{s}" " " "{L}" "{L" "{R}" "}" "{L" "{" str))
-
-  (foreach w (subst (enc delim) "{} {}" (enc str))
-           [(dec w)]))
+  ;; Encode "!" as "!! and " " as " ! "
+  (define `(enc s)
+    (subst "!" "!!" " " " ! " s))
+  (define `(tovec s)
+    (subst "!x" nil
+           (patsubst "!x" "!."
+                     (.. "!x" (subst " ! " "!0" "!!" "!1" "\t" "!+" s)))))
+  (tovec (subst (enc delim) " !x" (enc str))))
 
 
 ;; Add one to N.  N must contain only decimal digits.
@@ -630,13 +702,13 @@
   &public
   (cond
    ((filter "%1 %2 %3 %4" n)
-    (subst "4~" 5 "3~" 4 "2~" 3 "1~" 2 (concat n "~")))
+    (subst "4~" 5 "3~" 4 "2~" 3 "1~" 2 (.. n "~")))
 
    ((filter "%5 %6 %7" n)
-    (subst "7~" 8 "6~" 7 "5~" 6 (concat n "~")))
+    (subst "7~" 8 "6~" 7 "5~" 6 (.. n "~")))
 
-   ((findstring "9~" (concat n "~"))
-    (concat (1+ (or (subst "9~" "" (concat n "~")) 0)) 0))
+   ((findstring "9~" (.. n "~"))
+    (.. (1+ (or (subst "9~" "" (.. n "~")) 0)) 0))
 
    (else (patsubst "%0" "%1" (patsubst "%8" "%9" n)))))
 
@@ -645,29 +717,29 @@
 
 (define (mcache varname func a b c more)
   (if more
-      (info "Warning: memoized function passed more than three arguments"))
-  (if (not (bound? varname))
+      (print "Warning: memoized function passed more than three arguments"))
+  (if (not (native-bound? varname))
       (set-native varname (func a b c)))
-  (value varname))
+  (native-var varname))
 
 
 (define (memoenc a ?b ?c)
   (if (or a b c)
-      (concat "~~" (subst "~" "~0" a) (memoenc b c))))
+      (.. "~~" (subst "~" "~0" a) (memoenc b c))))
 
 
 ;; Memoize a function that accepts up to three arguments.
 ;;
 (define (memoize funcname)
   &public
-  (if (not (bound? funcname))
-      (info (concat "Warning: [memoize-1] function '" funcname "' not defined."))
-      (let ((func (value funcname))
-            (varbase (concat "*memo" (memoenc funcname)))
+  (if (not (native-bound? funcname))
+      (print (.. "Warning: [memoize-1] function '" funcname "' not defined."))
+      (let ((func (native-value funcname))
+            (varbase (.. "*memo" (memoenc funcname)))
             (funcname funcname))
         (set-native-fn funcname
                      (lambda (a b c d e f g h)
-                       (mcache (concat varbase (memoenc a b c)) func a b c
+                       (mcache (.. varbase (memoenc a b c)) func a b c
                                (or d e f g h)))))))
 
 
@@ -676,13 +748,13 @@
 (define (sort-by key-func values)
   &public
   (define `keyed
-    (foreach w values
-             (concat (demote (key-func (promote w))) "!!" w)))
+    (foreach (w values)
+      (.. (demote (key-func (promote w))) "!!" w)))
 
   (filter-out "%!!" (subst "!!" "!! " (sort keyed))))
 
 
-;; Return items that match PREFIX or begin with `(concat PREFIX " ")`.
+;; Return items that match PREFIX or begin with `(.. PREFIX " ")`.
 ;;
 (define (assoc-initial prefix vec)
   &public
@@ -695,7 +767,7 @@
    (firstword
     (if (findstring "%" prefix)
         assoc-pct
-        (filter (concat prefix " " prefix [" %"]) vec)))))
+        (filter (.. prefix " " prefix [" %"]) vec)))))
 
 
 ;; Return the first vector in VECV whose initial items match those in KEY-VEC.
@@ -717,7 +789,7 @@
 ;;
 (define (index-of vec item)
   &public
-  (define `(wrap str) (concat "!_" str "!_"))
+  (define `(wrap str) (.. "!_" str "!_"))
 
   (words
    (subst "!_" " "
@@ -745,11 +817,23 @@
       (f (first v) (foldr f z (rest v)))
       z))
 
+
 ;; Insert VALUE into VEC between every two adjacent items.  If VEC is empty,
 ;; the result is empty.  Otherwise, the result has one less than twice as
 ;; many elements as VEC.
 ;;
 (define (intersperse value vec)
   &public
-  (subst " " (concat " " [value] " ")
+  (subst " " (.. " " [value] " ")
          vec))
+
+
+;; Return a list of N words, constructed by appending copies of V.
+;; N must be an integer; if less than one, the result is empty.
+;;
+(define (repeat-words v n)
+  &public
+  (if (filter-out "-% 0" n)
+      (if (word n (._. v v v))
+          (wordlist 1 n (._. v v v))
+          (repeat-words (._. v v v) n))))

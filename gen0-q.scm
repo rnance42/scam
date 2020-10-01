@@ -9,8 +9,6 @@
 ;; utilities
 ;;--------------------------------
 
-(define (p1-0 text)
-  (form-set-indices 0 (p1 text)))
 
 ;; Compile text, returning final env (or error).
 ;;
@@ -20,8 +18,24 @@
                  (if (and nodes
                           (not allow-nodes)
                           (not (eq? [(IString "")] nodes)))
-                     (sprintf "UNEXPECTED NODES: '%q'" nodes)
+                     (sprintf "UNEXPECTED NODES: %q" nodes)
                      env))))
+
+
+;; Return 1 on match; otherwise print message and return nil.
+;;
+(define (match-perror rec sym-where pattern)
+  (define `pos-in
+    (if (word 2 sym-where)
+        (form-index sym-where)
+        sym-where))
+
+  (or (case rec
+        ((PError pos desc)
+         (and (eq? pos pos-in)
+              (findstring pattern desc)
+              1)))
+      (printf "Expected: %q\n     Got:  %q" (PError pos-in pattern) rec)))
 
 
 ;;--------------------------------
@@ -29,52 +43,142 @@
 ;;--------------------------------
 
 
+(define _a (PSymbol 1 "a"))
+(define _b (PSymbol 2 "b"))
+(define _x (PSymbol 5 "x"))
+(define _y (PSymbol 6 "y"))
+(define _?y (PSymbol 16 "?y"))
+(define _...z (PSymbol 27 "...z"))
+(define _1 (PString 91 1))
+(define _2 (PString 92 2))
+
+
+;; get-flags, skip-flags
+
 (define `flag-args
-  [ (PString 0 "F") (PSymbol 2 "&private") (PSymbol 3 "&native")
-    (PSymbol 2 "bar") ])
+  [ (PString 0 "F") (PSymbol 2 "&private") (PSymbol 3 "&native") _a])
 
-(expect 0 (scan-flags flag-args 0))
-(expect 3 (scan-flags flag-args 1))
-(expect 3 (scan-flags flag-args 2))
-(expect 3 (scan-flags flag-args 3))
-(expect 4 (scan-flags flag-args 4))
+(expect 0 (scan-flags flag-args 1 0))
+(expect 3 (scan-flags flag-args 2 1))
+(expect 3 (scan-flags flag-args 3 2))
+(expect 3 (scan-flags flag-args 4 3))
+(expect 4 (scan-flags flag-args 5 4))
 
-(expect ["&private" "&native"]  (get-flags flag-args 1))
-(expect ["&native"]             (get-flags flag-args 2))
-(expect flag-args               (skip-flags flag-args 0))
-(expect [(PSymbol 2 "bar") ]    (skip-flags flag-args 1))
-(expect [(PSymbol 2 "bar") ]    (skip-flags flag-args 2))
+(expect ["&private" "&native"]  (get-flags flag-args))
+(expect ["&native"] (get-flags (rest flag-args)))
+(expect [_a] (skip-flags flag-args))
+
+;; get-arity
+
+(expect "1" (get-arity "a"))
+(expect "0 1" (get-arity "?a"))
+(expect "0+" (get-arity "...a"))
+(expect "1+" (get-arity "a ?c ...d"))
+(expect "1 2 3" (get-arity "a ?c ?d"))
+
+;; translate
+
+(expect (translate (IString "x") "." "." [] 9)
+        (IString "x"))
+;; IWhere
+(expect (translate (IWhere 2) "." "." [] 9)
+        (IWhere 9))
+
+;; symbol macro with capture
+(expect (translate (IArg 2 ".") "." "..." [] 9)
+        (IArg 2 "..."))
+;; symbol macro with interior arg
+(expect (translate (ILambda (IArg 2 ".")) "." "..." [] 9)
+        (ILambda (IArg 2 ".")))
+;; symbol macro with auto arg
+(expect (translate (IArg ";" ".") ";" ";" [] 9)
+        (IArg ";" "."))
 
 
-(expect (ILocal 3 0) (c0-local ".3"  "." nil))
-(expect (ILocal 3 1) (c0-local ".3"  ".." nil))
-(expect (ILocal 3 1) (c0-local "..3" "..." nil))
-(expect (ILocal 3 2) (c0-local ".3"  "..." nil))
+;; compound macro with capture
+(expect (translate (IArg 2 "..") ".." "..." [(IString "a")] 9)
+        (IArg 2 "..."))
+(expect (translate (IArg 2 "..") ".." "." [(IString "a")] 9)
+        (IArg 2 "."))
+;; compound macro with auto capture
+(expect (translate (IArg ";" "..") ".." ".;" [(IString 1)] 9)
+        (IArg ";" "."))
+
+(expect (translate (IArg 2 "..") ".." ".;;" [(IString "a")] 9)
+        (IArg 2 "."))
+;; compound macro with interior arg
+(expect (translate (ILambda (IArg 2 ".")) ".." "..." [(IString "x")] 9)
+        (ILambda (IArg 2 ".")))
+;; compound macro with argument
+(expect (translate (IArg 2 ".") ".." "..." [(IString "a") (IString "b")] 9)
+        (IString "b"))
+
+;; compound macro with "rest" argument
+(expect (translate (IArg "1+" ".") ".." "..." [(IString "a") (IString "b")] 9)
+        (il-vector [(IString "a") (IString "b")]))
+
+;; macro argument w/ lambda capture
+(foreach (to-depth ". .. ...")
+  (expect (translate (IArg 1 ".") ".." to-depth [(IArg 2 ".")] 9)
+          (IArg 2 "."))
+  (expect (translate (ILambda (IArg 1 "..")) ".." to-depth [(IArg 2 ".")] 9)
+          (ILambda (IArg 2 "..")))
+  ;; macro argument w/ interior arg
+  (expect (translate (ILambda (IArg 1 "..")) ".." to-depth
+                     [(ILambda (IArg 1 "."))] 9)
+          (ILambda (ILambda (IArg 1 ".")))))
+
+;; symbol macro with auto vars & old-ad
+(expect (translate (IFor ";;" (IArg ";" ".") (IArg ";;" "."))
+                   "..;" "...;;" nil 9)
+        (IFor ";;;" (IArg ";" "..") (IArg ";;;" ".")))
+(expect (translate (IFor ";;;" (IArg ";" ".") (IConcat [(IArg ";;" ".")
+                                                        (IArg ";;;" ".")]))
+                   "..;;" "..." nil 9)
+        (IFor ";" (IArg ";" "..") (IConcat [(IArg ";;" "..")
+                                            (IArg ";" ".")])))
+
+;; macro argument w/ interior auto; AD != OLD-AD
+(expect (translate (IFor ";" (IArg ";" "..")
+                         (IConcat [(IArg 1 ".")
+                                   (IArg 2 ".")
+                                   (ILambda (IArg 1 ".."))
+                                   (ILambda (IArg 2 ".."))
+                                   (IArg ";" ".")]))
+                   ".." "...;;"
+                   [(IArg ";;" ".")
+                    (IFor ";;;" (IArg ";;" ".") (IArg ";;;" "."))
+                    ] 9)
+        (IFor ";;;" (IArg ";" "...")
+              (IConcat [(IArg ";;" ".")
+                        (IFor ";;;;" (IArg ";;" ".") (IArg ";;;;" "."))
+                        (ILambda (IArg ";;" ".."))
+                        (ILambda (IFor ";" (IArg ";;" "..") (IArg ";" ".")))
+                        (IArg ";;;" ".")])))
 
 
 ;;--------------------------------
-;; c0-xxxx tests
+;; c0
 ;;--------------------------------
-
 
 ;; PString
-(expect (c0-ser "\" x \"")
-        " x ")
+(expect (c0 (PString 9 " a!0b ") nil)
+        (IString " a!0b "))
+;; PQuote
+(expect (c0 (PQuote 8 (PString 9 " a!0b ")) nil)
+        (IString (PString 9 " a!0b ")))
+;; errors
+(expect (c0 (PUnquote 9 (PString 10 "x")) nil)
+        (PError 9 "unquote (,) outside of a quasiquoted (`) form"))
+(expect (c0 (PSplice 9 (PString 10 "x")) nil)
+        (PError 9 "splice (,@) outside of a quasiquoted (`) form"))
+(expect (c0 (PError 9 " a!0b ") nil)
+        (PError 9 " a!0b "))
 
 
-;; PSymbol: global data variable
-(expect (c0-ser "d!0!")
-        "{D!0!}")
-
-;; PSymbol: global function variable
-(expect (c0-ser "f!0!")
-        "(.value F!0!)")
-
-;; PSymbol: undefined variables
-(expect (c0-ser "foo")
-        "!(PError 1 'undefined variable \\'foo\\'')")
-
-;; PDict: dictionaries
+;;--------------------------------
+;; c0 PDict: dictionaries
+;;--------------------------------
 
 (expect (c0-ser "{}") "")
 (expect (c0-ser "{a:1}") "a!=1")
@@ -83,224 +187,26 @@
 (expect (c0-ser "{a:1 b:2}") "a!=1 b!=2")
 (expect (c0-ser "{=a:1}") "(^k {1})!=1")
 
-;; c0-block
 
-(expect (c0-ser "\"x\" v")
-        "(IBlock x,{V})")
-
-
-;; PList: (functionvar ...)
-
-(expect (c0-ser "(f!0! 1 2)")
-        "(F!0! 1,2)")
-(expect (c0-ser "(f 1)")
-        "!(PError 2 '\\'f\\' accepts 2 arguments, not 1')")
-(expect (c0-ser "(f)" (text-to-env "(declare (f a ?b))"))
-        "!(PError 2 '\\'f\\' accepts 1 or 2 arguments, not 0')")
-(expect (c0-ser "(f)" (text-to-env "(declare (f a ?b ...))"))
-        "!(PError 2 '\\'f\\' accepts 1 or more arguments, not 0')")
-(expect (c0-ser "(f)" (text-to-env "(declare (f a b ...))"))
-        "!(PError 2 '\\'f\\' accepts 2 or more arguments, not 0')")
-(expect (c0-ser "(f)" (text-to-env "(declare (f a ?b ?c))"))
-        "!(PError 2 '\\'f\\' accepts 1 or 2 or 3 arguments, not 0')")
-
-
-;; PList: (macro ...)
-
-(define `inln-f
-  (cons "." (IBuiltin "subst" [(ILocal 1 0)  ;; macro arg
-                               (ILocal 1 1)  ;; capture
-                               (ILocal 2 0)])))
-(expect (c0-ser "(f 1 a)"
-                { f: (EFunc NoGlobalName "." 2 inln-f),
-                  a: (EArg ".7"),
-                  =LambdaMarkerKey: (EMarker "..") })
-        "(.subst 1,{1^1},{7^1})")
-
-(define `inln-f-2
-  (cons "." (ILambda (IBuiltin "word"
-                               [ (ILocal 2 0)     ;; interior arg
-                                 (ILocal 1 1)     ;; macro arg
-                                 ]))))
-(expect (c0-ser "(f 1)"
-                 { f: (EFunc NoGlobalName "." 1 inln-f-2),
-                   =LambdaMarkerKey: (EMarker "..") })
-        "`(.word {2},1)")
-
-
-;; Expand IWhere in macros.  Supports (current-file-line).
-
-(let-global
- ((*compile-subject* "a b c")
-  (*compile-file* "F2"))
-
- (expect (xlat-where (IWhere 9) 1)
-         (IWhere 1))
-
- ;; Expand compound macro with IWhere record.
- (define `inln-f-where (cons "." (IWhere 99)))
- (expect (c0-ser "(f)" {f: (EFunc NoGlobalName "." 0 inln-f-where)})
-         "!(IWhere 2)")
-
- ;; Expand symbol macro with IWhere record.
- (expect (c0-ser "S" {S: (EIL "" "p" (IWhere 9))})
-         "!(IWhere 1)"))
-
-
-;; PList: (datavar ...)
-
-(expect (c0-ser "(d!0! 7)")
-        "(^Y {D!0!},7)")
-
-;; PList: (record ...)
-
-(expect (il-ser (c0-record nil
-                           (PSymbol 0 "CA")
-                           [ (PString 1 "1") (PString 1 "2") ]
-                           "S L"
-                           "!:D0"))
-        "!:D0 1 2")
-
-(expect (il-ser
-         (c0-ctor {Ctor: (ERecord "S L" "." "!:T0")}
-                  (PSymbol 0 "Ctor")
-                  "S L"))
-        "`!:T0 (^d {1}) {2}")
-
-(expect (c0-ser "C" {C: (ERecord "S W L" "." "!:T0")})
-        "`!:T0 (^d {1}) {2} {3}")
-
-
-;; PList: (<builtin> ...)
-
-(expect (c0-ser "(or 7)" nil)
-        "(.or 7)")
-(expect (c0-ser "(if 1)")
-        "!(PError 2 '\\'if\\' accepts 2 or 3 arguments, not 1')")
-(expect (c0-ser "(if 1 2 3 4)")
-        "!(PError 2 '\\'if\\' accepts 2 or 3 arguments, not 4')")
-(expect (c0-ser "(bar)")
-        "!(PError 2 'undefined symbol: \\'bar\\'')")
-(expect (c0-ser "()")
-        "!(PError 1 'missing function/macro name')")
-
-;; PList: (arg ...)
-
-(expect (c0-ser "(var 7)"
-                (lambda-env [(PSymbol 0 "var")] nil))
-        "(^Y {1},7)")
-
-(begin
-  (define (test-xmacro form)
-    (PString 1 "hi"))
-  (define `test-xm-env
-    { var: (EXMacro (native-name test-xmacro) "i")})
-
-  (expect (c0-ser "(var 7)" test-xm-env)
-          "hi"))
-
-;; PList: (lambda NAMES BODY)
-
-;; lambda-env
-(expect (lambda-env [(PSymbol 1 "b")]
-                    (lambda-env [(PSymbol 1 "a")]
-                                nil))
-        (append { =LambdaMarkerKey: (EMarker ".."),
-                  b: (EArg "..1"),
-                  =LambdaMarkerKey: (EMarker "."),
-                  a: (EArg ".1") }))
-
-(let ((env (lambda-env (pN "a b c e f g h i j k") nil)))
-  (expect (word 1 env)
-          { =LambdaMarkerKey: (EMarker ".")})
-  (expect (dict-get "a" env)
-          (EArg ".1"))
-  (expect (dict-get "i" env)
-          (EArg ".8"))
-  (expect (dict-get "j" env)
-          (EIL "." "-" (IBuiltin "call" [(IString "^n") (IString 1) (ILocal 9 0)])))
-  (expect (dict-get "k" env)
-          (EIL "." "-" (IBuiltin "call" [(IString "^n") (IString 2) (ILocal 9 0)]))))
-
-(expect (dict-get "..." (lambda-env (pN "a b ...") nil))
-        (EIL "" "-" (IBuiltin "foreach" [(IString "N") (IString 3) (IVar "^v")])))
-(expect (dict-get "r" (lambda-env (pN "a b ...r") nil))
-        (EIL "" "-" (IBuiltin "foreach" [(IString "N") (IString 3) (IVar "^v")])))
-(expect (dict-get "..." (lambda-env (pN "a b c d e f g h i ...") nil))
-        (EIL "." "-" (IBuiltin "wordlist" [(IString 2) (IString 999999) (ILocal 9 0)])))
-(expect (dict-get "..." (lambda-env (pN "a b c d e f g h ...") nil))
-        (EArg ".9"))
-(expect (dict-get "r" (lambda-env (pN "a b c d e f g h ...r") nil))
-        (EArg ".9"))
-
-;; local variable referencing arg 9
-(expect (c0-ser "X" (lambda-env (pN "a a a a a a a a X Y") nil))
-        "(.call ^n,1,{9})")
-
-(expect (c0-ser "(lambda (a) v)")
-        "`{V}")
-
-(expect (c0-ser "(lambda (a b) a b)")
-        "`(IBlock {1},{2})")
-
-(foreach SCAM_DEBUG "-" ;; avoid upvalue warning
-         (expect (c0-ser "(lambda (a) (lambda (b) a b))")
-                 "``(IBlock {1^1},{1})"))
-
-;; PSymbol: macro  (uses c0-lambda)
-(begin
-  (define `inln
-    (cons "." (IBuiltin "subst" [(ILocal 1 0)  ;; macro arg
-                                 (ILocal 1 1)  ;; capture
-                                 (ILocal 2 0)])))
-  (expect (il-ser (c0-macro { =LambdaMarkerKey: (EMarker "..") }
-                            inln))
-          "`(.subst {1},{1^2},{2})"))
-
-
-;; PSymbol: builtin  (uses c0-lambda)
-
-(expect (il-ser (c0-builtin nil "word" "2 or 1"))
-        "`(.word {1},{2})")
-(expect (il-ser (c0-builtin nil "or" "%"))
-        "`(^na or,{^av})")
-
-;; ': quote
-
-(expect (c0-ser "'(joe bob)")
-        (p1 " (joe bob)"))
-
-;;
-;; `: quasi-quote
-;;
-;; A quoted expression *evaluates* to the AST for the quoted expression:
-;;    ((c1 (c0 ["`" AST]))) -> AST
+;;--------------------------------
+;; c0 PQQuote
+;;--------------------------------
 
 (define (cqq text)
-  (c0-ser text { sym: (EIL "" "-" (IString "SYM")),
-                 var: (EVar "VAR" "."),
+  (c0-ser text { sym: (EIL "p" "." (IString "SYM")),
+                 var: (EVar "p" "VAR"),
                  ;; args = [`a `b]
-                 args: (EIL "" "-" (IString [(PSymbol 1 "a")
-                                             (PSymbol 2 "b")])) }))
+                 args: (EIL "p" "." (IString [_a _b])) }))
 
-(expect (c0 (p1-0 "`x") nil)
-        (IString (p1-0 "x")))
-
-(expect (cqq "`,sym")
-        "SYM")
-
-
-(expect (cqq "`,var")
-        "{VAR}")
-
+(expect (c0 (p1 "`x") nil) (IString (p1 " x")))
+(expect (cqq "`,sym") "SYM")
+(expect (cqq "`,var") "{VAR}")
 (expect (cqq "`(a 1 ,var)")
-        (concat (PList 2 [ (PSymbol 3 "a") (PString 5 1) ]) " (^d {VAR})"))
-
-
+        (.. (PList 2 [(PSymbol 3 "a") (PString 5 1)]) " (^d {VAR})"))
 
 ;; nested quote/unquote
 (begin
-  (define `(dd node) (concat "(^d " node ")"))
+  (define `(dd node) (.. "(^d " node ")"))
   (define (cc ...nodes) (IConcat nodes))
 
   ;; Some demote operations are deferred until run-time, some are already
@@ -316,40 +222,237 @@
 
 ;; errors
 
-(expect (c0-ser ",a")
-        "!(PError 1 'unquote (,) outside of a quasiquoted (`) form')")
-(expect (cqq "`)")
-        "!(PError 2 ') .')")
-(expect (cqq "`,)")
-        "!(PError 3 ') .')")
-
+(expect (cqq "`)")  "!(PError 2 ') .')")
+(expect (cqq "`,)") "!(PError 3 ') .')")
 
 ;; splicing
 
 (expect (cqq "`(1 ,@args 2)")
-        (PList 2 [(PString 3 1) (PSymbol 1 "a") (PSymbol 2 "b") (PString 8 2)]))
-
+        (PList 2 [(PString 3 1) _a _b (PString 8 2)]))
 (expect (cqq "`(1 ,@var 2)")
-        (PList 2 [ (PString 3 1) "{VAR}" (PString 8 2) ]))
+        (PList 2 [(PString 3 1) "{VAR}" (PString 8 2)]))
 
+
+;;--------------------------------
+;; c0 PSymbol  ->  c0-S
+;;--------------------------------
+
+;; global data variable
+(expect (c0 _a {a: (EVar "p" "~a")})
+        (IVar "~a") )
+
+;; global function variable
+(expect (c0 _a {a: (EFunc "p" "~a" 1)})
+        (IBuiltin "value" [(IString "~a")]))
+
+;; undefined
+(expect (c0 _b nil)
+        (PError 2 "undefined variable: `b`"))
+
+;; local variable
+(expect (c0 _a (append {a: (EDefn.arg 1 ".")}
+                       (depth-marker ".")))
+        (IArg 1 "."))
+
+(expect (c0 _a (append {a: (EDefn.arg 1 ".")}
+                       (depth-marker "..")))
+        (IArg 1 ".."))
+
+(expect (c0 _a (append {a: (EDefn.arg ";" ";")}
+                       (depth-marker ";")))
+        (IArg ";" "."))
+
+
+;; compound macro [and see macro round-trip tests, below]
+
+
+;; (lambda (x)
+;;   (define `(cm a _ c)
+;;      (.. a x (lambda (z) z)))
+;;   cm)
 ;;
+(define `cm
+  (IConcat [(IArg 1 ".")                  ;; macro arg
+            (IArg 2 "..")                 ;; capture
+            (ILambda (IArg 3 "."))]))     ;; internal arg
+
+(expect (c0 _a (append {a: (EMacro "p" ".." 1 cm)}
+                       (depth-marker ".")))
+        (ILambda
+         (IConcat [(IArg 1 ".")
+                   (IArg 2 "..")
+                   (ILambda (IArg 3 "."))])))
+
+
+;; builtin
+(expect (c0 _a {a: (EBuiltin "p" "words" 1)})
+        (ILambda (IBuiltin "words" [ (IArg 1 ".") ])))
+
+;; vararg builtins
+(expect (il-ser (c0-builtin nil "or" "%"))
+        "`(^na or,{^av})")
+
+
+;;--------------------------------
+;; c0-block
+;;--------------------------------
+
+(expect (c0-ser "\"x\" v") "(IBlock x,{V})")
+
+
+;;--------------------------------
+;; c0-L : PList
+;;--------------------------------
+
+;; PList = (functionvar ...)
+
+(expect (c0-ser "(f!0! 1 2)")
+        "(F!0! 1,2)")
+(expect (c0-ser "(f 1)")
+        "!(PError 2 '`f` accepts 2 arguments, not 1')")
+(expect (c0-ser "(f)" (text-to-env "(declare (f a ?b))"))
+        "!(PError 2 '`f` accepts 1 or 2 arguments, not 0')")
+(expect (c0-ser "(f)" (text-to-env "(declare (f a ?b ...))"))
+        "!(PError 2 '`f` accepts 1 or more arguments, not 0')")
+(expect (c0-ser "(f)" (text-to-env "(declare (f a b ...))"))
+        "!(PError 2 '`f` accepts 2 or more arguments, not 0')")
+(expect (c0-ser "(f)" (text-to-env "(declare (f a ?b ?c))"))
+        "!(PError 2 '`f` accepts 1 or 2 or 3 arguments, not 0')")
+
+
+;; PList = (macro ...)
+
+;; (define `(f a) a) *(f 1)*
+(expect (c0-ser "(f 1)" (append {f: (EMacro "p" "." 1 (IArg 1 "."))}))
+        "1")
+
+;; (lambda (x y) (define `(f a) (.. a y)) *(f 7)* )    [captures]
+(expect (c0-ser "(f 7)" (append {f: (EMacro "p" ".." 1
+                                            (IConcat [(IArg 1 ".")
+                                                      (IArg 2 "..")]))}
+                                (depth-marker ".")))
+        "7{2}")
+
+;; (define `(f) (lambda (x) x)) *(f)*
+(expect (c0-ser "(f)" { f: (EMacro "p" "." 0 (ILambda (IArg 1 "."))) })
+        "`{1}")
+
+
+;; macro defined in ".;;" and expanded at ".;;" with an arg (IArg ";;" ".")
+;;   (lambda (_)
+;;     (foreach a XXX
+;;        (define `(cm x) a)
+;;        (cm 1)))
+;;
+(expect (c0-ser "(cm 1)" (append { cm: (EMacro "p" ".." 1 (IArg ";" "..")) }
+                                 (depth-marker ".;")))
+        "{;}")
+
+;; PList = (<builtin> ...)
+
+(expect (c0-ser "(or 7)" nil)
+        "(.or 7)")
+(expect (c0-ser "(if 1)")
+        "!(PError 2 '`if` accepts 2 or 3 arguments, not 1')")
+(expect (c0-ser "(if 1 2 3 4)")
+        "!(PError 2 '`if` accepts 2 or 3 arguments, not 4')")
+(expect (c0-ser "(bar)")
+        "!(PError 2 'undefined symbol: `bar`')")
+(expect (c0-ser "()")
+        "!(PError 1 'missing function/macro name')")
+
+
+;; PList = (datavar ...)
+
+(expect (c0-ser "(d!0! 7)")
+        "(^Y {D!0!},7)")
+
+
+;; PList = (arg ...)
+
+(expect (c0-ser "(var 7)" (append (depth-marker ".")
+                                  { var: (EDefn.arg 1 ".") }))
+        "(^Y {1},7)")
+
+
+;; PList = (xmacro ...)
+
+(begin
+  (define (test-xmacro form)
+    (PString 1 "hi"))
+  (define `test-xm-env
+    { var: (EXMacro "i" (native-name test-xmacro))})
+
+  (expect (c0-ser "(var 7)" test-xm-env)
+          "hi"))
+
+
+;; PList: (lambda NAMES BODY)  --> special-lamda
+;; M.lambda, c0-lambda
+
+(define `(test-bpe forms sym-where desc)
+  (expect 1 (match-perror (dict-get EnvErrorKey (bind-params "." forms))
+                          sym-where
+                          desc)))
+
+(test-bpe [ _1 ] _1 "invalid assignment target")
+(test-bpe [ _a _?y _x ] _?y "'?NAME' can appear")
+(test-bpe [ _a _...z _...z ] _...z "'...NAME' can appear")
+
+(expect (bind-params "." [ _a _...z ])
+        {a: (EDefn.arg 1 "."),
+         z: (EDefn.arg "2+" ".")})
+
+
+;; (lambda ...)
+
+(expect (c0-ser "(lambda (a) v)")
+        "`{V}")
+(expect (c0-ser "(lambda (a b) a b)")
+        "`(IBlock {1},{2})")
+(expect (c0-ser "(lambda ([a ...b]) a b)")
+        "`(IBlock (^n 1,{1}),(.wordlist 2,99999999,{1}))")
+(expect (c0-ser "(lambda (a) (lambda (b) a b))")
+        "``(IBlock {.1},{1})")
+
+(expect 1 (see "!(PError 5 'invalid assignment target;"
+               (c0-ser "(lambda (\"a\") a)")))
+(expect 1 (see "!(PError 7 ''...NAME' can appear only as "
+               (c0-ser "(lambda (a ...b ?c) a)")))
+(expect 1 (see "!(PError 7 ''...NAME' can appear only as "
+               (c0-ser "(lambda (a ...b ?c) a)")))
+(expect 1 (see "!(PError 6 ''?NAME' can appear only in "
+               (c0-ser "(lambda ([?a]) a)")))
+
+
+;; PList = (record ...)
+
+(expect (il-ser (c0-record nil
+                           (PSymbol 0 "CA")
+                           [ _1 _2 ]
+                           "S L"
+                           "!:D0"))
+        "!:D0 1 2")
+
+
+;;--------------------------------
 ;; declare & define
-;;
+;;--------------------------------
 
 (expect (text-to-env "(declare var)")
-        { var: (EVar (gen-native-name "var" nil) "p") })
+        { var: (EVar "p" (gen-native-name "var" nil)) })
 (expect (text-to-env "(declare var &public)")
-        { var: (EVar (gen-native-name "var" nil) "x") })
+        { var: (EVar "x" (gen-native-name "var" nil)) })
 
 ;; declare FUNC
 (expect (text-to-env "(declare (fn a b))")
-        { fn: (EFunc (gen-native-name "fn" nil) "p" 2 nil) })
+        { fn: (EFunc "p" (gen-native-name "fn" nil) 2) })
 (expect (text-to-env "(declare (fn a b) &public)")
-        { fn: (EFunc (gen-native-name "fn" nil) "x" 2 nil) })
+        { fn: (EFunc "x" (gen-native-name "fn" nil) 2) })
 
 ;; declare errors
 (expect (c0-ser "(declare)")
-        "!(PError 2 'missing FORM in (declare FORM ...); expected a list or symbol')")
+        "!(PError 2 'missing FORM in (declare FORM ...); expected a list or target')")
 (expect (c0-ser "(declare foo 7)")
         "!(PError 6 'too many arguments to (declare ...)')")
 (expect (c0-ser "(declare (1 a))")
@@ -358,116 +461,138 @@
 
 ;; define VAR
 (p1-block-cc
- "(define x 1) (info x)"
+ "(define x 1) (dir x)"
  (lambda (env sil)
-   (expect env { x: (EVar (xns "~x") "p") })
-   (expect sil (xns "(IBlock (^set ~x,1),(.info {~x}))"))))
+   (expect env { x: (EVar "p" (xns "~x")) })
+   (expect sil (xns "(IBlock (^set ~x,1),(.dir {~x}))"))))
 
+(p1-block-cc
+ "(define [a b] 3)"
+ (lambda (env sil)
+   (expect env { a: (EVar "p" (xns "~a")), b: (EVar "p" (xns "~b")) })
+   (expect sil (xns "(^Y `(IBlock (^set 'a,(^n 1,{1})),(^set 'b,(^n 2,{1}))),3)"))))
+
+(expect (c0-ser "(define {a: x} 3)")
+        (xns "(^set ~x,(^dv (.filter a!=%,3)))"))
 
 ;; define FUNC
 (expect (c0-ser "(define (f a ?b) (join a b))")
         (xns "(^fset ~f,`(.join {1},{2}))"))
 
 (expect (text-to-env "(define (f a) a)" nil 1)
-        (xns { f: (EFunc "~f" "p" 1 nil) }))
+        (xns { f: (EFunc "p" "~f" 1) }))
 
 ;; define compound macro
 (expect (text-to-env "(define `(M a) (words a))")
-        { M: (EFunc NoGlobalName "p" 1
-                    (cons "" (IBuiltin "words" [(ILocal 1 0)]))) })
+        {M: (EMacro "p" ".." 1 (IBuiltin "words" [(IArg 1 ".")]))})
 
 (expect (text-to-env "(define `(M a) &public (words a))")
-        { M: (EFunc NoGlobalName "x" 1
-                    (cons "" (IBuiltin "words" [(ILocal 1 0)]))) })
+        {M: (EMacro "x" ".." 1 (IBuiltin "words" [(IArg 1 ".")]))})
 
 
 ;; define symbol macro
 (expect (text-to-env "(define `I 7)"
-                     {x: (EVar "x" "")})
-        { I: (EIL "" "p" (IString 7)),
-          x: (EVar "x" "") })
+                     {x: (EVar "p" "x")})
+        { I: (EIL "p" "." (IString 7)),
+          x: (EVar "p" "x") })
 
 (expect (text-to-env "(define `I &public 7)"
-                     {x: (EVar "x" "")})
-        { I: (EIL "" "x" (IString 7)),
-          x: (EVar "x" "") })
-
+                     {x: (EVar "p" "x")})
+        { I: (EIL "x" "." (IString 7)),
+          x: (EVar "p" "x") })
 
 ;; (define ...) errors
 
-(expect nil (check-optional-args [(PSymbol 0 "a") (PSymbol 0 "b")]))
-(expect nil (check-optional-args [(PSymbol 0 "?a") (PSymbol 0 "?b")]))
-(expect nil (not (check-optional-args [(PSymbol 0 "?a") (PSymbol 0 "b")])))
-(expect nil (not (check-optional-args [(PSymbol 0 "...a") (PSymbol 0 "b")])))
-
-
 (expect (c0-ser "(define)")
-        "!(PError 2 'missing FORM in (define FORM ...); expected a list or symbol')")
+        "!(PError 2 'missing FORM in (define FORM ...); expected a list or target')")
 (expect (c0-ser "(define `1)")
-        "!(PError 5 'invalid FORM in (define `FORM ...); expected a list or symbol')")
-(expect (c0-ser "(define `(m ...x) x)")
-        "!(PError 8 'macros cannot have rest (...) parameters')")
-;; Allow "?x", but not "...x".
+        "!(PError 5 'no BODY supplied to (define TARGET BODY)')")
 (expect (c0-ser "(define `(m ?a) a)")
         "")
-(expect (c0-ser "(define (f ...x z) x)")
-        "!(PError 9 'non-optional parameter after optional one')")
-(expect (c0-ser "(lambda (f ...x z) x)")
-        "!(PError 9 'non-optional parameter after optional one')")
+(expect (c0-ser "(define (f ...x ?z) x)")
+        "!(PError 7 ''...NAME' can appear only as the last parameter or vector target element')")
 (expect (c0-ser "(define (f ?a x) x)")
-        "!(PError 9 'non-optional parameter after optional one')")
+        "!(PError 7 ''?NAME' can appear only in parameter lists after all non-optional parameters')")
 ;; report errors when compiled, not when used
 (expect (c0-ser "(define `M UNDEF)")
-        "!(PError 7 'undefined variable \\'UNDEF\\'')")
+        "!(PError 7 'undefined variable: `UNDEF`')")
 (expect (c0-ser "(define `(M) UNDEF)")
-        "!(PError 9 'undefined variable \\'UNDEF\\'')")
-;; check for name conflicts with built-ins and automatic vars
-(expect (c0-ser "(define + 1)")
-        "!(PError 4 'cannot redefine automatic variable '$+'')")
-(expect (c0-ser "(define (word a) a)")
-        "!(PError 4 'cannot redefine built-in function \\'word\\'')")
+        "!(PError 9 'undefined variable: `UNDEF`')")
 
 ;; define and use symbol macro
 
 (expect (c0-ser "(define `X 3) X")
         "3")
 
+(p1-block-cc
+ "(define `[a b] 9)"
+ (lambda (env sil)
+   (expect env { a: (EIL "p" "." (ICall "^n" [(IString 1) (IString 9)])),
+                 b: (EIL "p" "." (ICall "^n" [(IString 2) (IString 9)])) })
+   (expect sil "")))
+
+
 ;; define and use compound macro
 
-(expect (c0-ser "(define `(M a) (info a)) (M 2)")
-        "(.info 2)")
-
-(expect (c0-ser "(define `(M a) (info a)) M")
-        "`(.info {1})")
-
-(expect (c0-ser "(define `(M ?a) (info a)) (M)")
-        "(.info )")
+(expect (c0-ser "(define `(M a) (dir a)) (M 2)")
+        "(.dir 2)")
+(expect (c0-ser "(define `(M a) (dir a)) M")
+        "`(.dir {1})")
+(expect (c0-ser "(define `(M ?a) (dir a)) (M)")
+        "(.dir )")
 
 
-;; (require MOD)
+;;--------------------------------
+;; macro round-trip tests
+;;--------------------------------
+
+;; compound macro with capture
+
+(expect (c0-ser "(lambda (a b) (define `(m a) (f a b)) (m 1))")
+        (c0-ser "(lambda (a b) (f 1 b))"))
+
+;; symbol macro with capture
+;;
+;; (lambda (s)
+;;   (define `(m)
+;;     (define `s a)
+;;     s)
+;;   (m))
+
+(expect (c0-ser "(lambda (a) (define `(m) (define `s a) s) (m))")
+        (c0-ser "(lambda (a) a)"))
+
+;; symbol macro with internal arg
+
+(expect (c0-ser "(begin (define `s2 (lambda (x) x)) (s2 3))")
+        (c0-ser "((lambda (x) x) 3)"))
+
+;; macro with "rest" arg
+
+(expect (c0-ser "(begin (define `(m ...z) z) (m 1 2 3))")
+        (c0-ser "\"1 2 3\""))
 
 
-(let-global ((get-module (lambda () (ModError "no worky"))))
+;;--------------------------------
+;; c0 PSymbol: record constructors
+;;--------------------------------
 
-  ;; too many arguments
-  (expect (c0-ser "(require \"mod\" foo)")
-          "!(PError 8 'too many arguments to require')")
+(expect (il-ser
+         (c0-ctor {Ctor: (ERecord "p" "S L" "!:T0")}
+                  (PSymbol 0 "Ctor")
+                  "S L"))
+        "`!:T0 (^d {1}) {2}")
 
-  ;; non-string
-  (expect (c0-ser "(require MOD)")
-          (concat "!(PError 4 'invalid STRING in (require STRING); "
-                  "expected a literal string')"))
-
-  ;; get-module failure
-  (expect (c0-ser "(require \"mod\")")
-          "!(PError 4 'require: no worky')"))
+(expect (c0-ser "C" {C: (ERecord "p" "S W L" "!:T0")})
+        "`!:T0 (^d {1}) {2} {3}")
 
 
-(define (mock-get-module name base private)
-  (ModSuccess (subst ".scm" "" name)
-              {f: (EVar "f" "i")}))
+;;--------------------------------
+;; gen0
+;;--------------------------------
 
-(let-global ((get-module mock-get-module))
-  ;; get-module success
-  (expect (c0-ser "(require \"mod.scm\")")
-          "(^R mod!(ICrumb 'require' 'mod'))"))
+(expect [ {A: (EVar "p" "'A")}
+          (ICall "^set" [(IString "'A") (IString "1")])
+          (IVar "'A") ]
+        (let-global ((*is-boot* nil))
+          (gen0 (pN "(define A 1) A") nil)))

@@ -84,16 +84,16 @@
 ;; Return dir containing DB, creating it if necessary.
 ;;
 (define (memo-dir)
-  (if (not (eq? *memo-dir* (dir *memo-db-file*)))
+  (if (not (eq? *memo-dir* (path-dir *memo-db-file*)))
       (begin
-        (set *memo-dir* (dir *memo-db-file*))
+        (set *memo-dir* (path-dir *memo-db-file*))
         (mkdir-p *memo-dir*)))
   *memo-dir*)
 
 
 ;; The database key to use for a call initiation
 (define `(call-key fname args)
-  (concat fname " " args))
+  (._. fname args))
 
 
 (data PMDB
@@ -112,7 +112,7 @@
 
 
 (define (memo-playback key)
-  (let ((o (dict-get key (concat *memo-cache* " " *memo-db*))))
+  (let ((o (dict-get key (._. *memo-cache* *memo-db*))))
     (case o
       ((Result v) o)
 
@@ -162,9 +162,8 @@
     (case io-record ((IO t _ _) t)))
 
   (if io-record
-      (begin
-        (expect io-record (IO io-tag fname args))
-        io-tag)))
+        ;; We expect: io-record == (IO io-tag fname args)
+        io-tag))
 
 
 (define (memo-log-io fname args result)
@@ -182,7 +181,7 @@
 
 
 (define `(memo-log-call fname args result)
-  (memo-log-io (concat ":" fname) args result))
+  (memo-log-io (.. ":" fname) args result))
 
 
 ;; Perform an IO operation.  Log the IO as an additional input to the
@@ -195,12 +194,9 @@
 
 (define (memo-do-apply fname args)
   (define `(playback-or-record fname args)
-    (let ((o (memo-playback (call-key fname args)))
-          (fname fname)
-          (args args))
-      (case o
-        ((Result v) v)
-        (else (memo-record (call-key fname args) fname args)))))
+    (case (memo-playback (call-key fname args))
+      ((Result v) v)
+      (else (memo-record (call-key fname args) fname args))))
 
   (let ((pair (dict-find (call-key fname args) *memo-cache*))
         (fname fname)
@@ -217,7 +213,7 @@
 ;;
 (define (memo-apply fname args)
   &public
-  (assert *memo-on*)
+  ;; (assert *memo-on*)
   (memo-log-call fname args (memo-do-apply fname args)))
 
 
@@ -258,7 +254,7 @@
 
 
 (define `(memo-db-encode data)
-  (concat (subst "\n" "!n" " " "\n" "!0" " " data) "\n"))
+  (.. (subst "\n" "!n" " " "\n" "!0" " " data) "\n"))
 
 (define `(memo-db-decode data)
   (strip (subst " " "!0" "\n" " " "!n" "\n" data)))
@@ -274,10 +270,12 @@
 
 (define `(memo-write-db)
   (define `memo-file-data
-    (concat *memo-tag* "\n"
-            (memo-db-encode *memo-db*)))
+    (.. *memo-tag* "\n"
+        (memo-db-encode *memo-db*)))
 
-  (expect nil (write-file *memo-db-file* memo-file-data))
+  ;; create memo dir if it has not been already
+  (memo-dir)
+  (expect nil (write-file-atomic *memo-db-file* memo-file-data))
   (set *memo-db-disk* *memo-db*))
 
 
@@ -338,12 +336,12 @@
 ;; Get vector of all filenames hashed in IO ops in the DB
 ;;
 (define `files-in-db
-  (foreach pair *memo-db*
-           (case (dict-value pair)
-             ((IO tag op args)
-              (if (filter op (concat (native-name do-hash-file) " "
-                                     (native-name do-write-blob)))
-                  (word 1 args))))))
+  (foreach ({=_: value} *memo-db*)
+    (case value
+      ((IO tag op args)
+       (if (filter op (._. (native-name do-hash-file)
+                           (native-name do-write-blob)))
+           (word 1 args))))))
 
 
 (define (do-hash-file filename)
@@ -380,7 +378,7 @@
 ;; Note: DST comes first to simplify files-in-db.
 ;;
 (define (do-write-blob dst blob)
-  (define `hash (notdir blob))
+  (define `hash (path-notdir blob))
 
   ;; Remove any cached hash for this file.  Memoized code must not write a
   ;; file after reading/hashing it, but the cache may have been populated
@@ -388,7 +386,7 @@
   (if (not (eq? hash (dict-get dst *memo-hashes*)))
       (begin
         (set *memo-hashes* (dict-remove dst *memo-hashes*))
-        (cp-file blob dst 1))))
+        (cp-file-atomic blob dst 1))))
 
 
 ;; Write DATA to FILENAME, logging the IO transaction for playback.  The

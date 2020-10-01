@@ -78,13 +78,13 @@
 ;; Assumes that neither A nor B are nil.
 ;;
 (define `(non-integers? a b)
-  (subst "9-0" nil 9 nil 1 nil 0 nil (concat 9 a 9 b)))
+  (subst "9-0" nil 9 nil 1 nil 0 nil (.. 9 a 9 b)))
 
 
 ;; Return non-nil if A or B are not simple non-negative integers: DIGIT+
 ;;
 (define `(non-naturals? a b)
-  (non-digit? (concat a b)))
+  (non-digit? (.. a b)))
 
 
 ;; Add B to A.
@@ -101,7 +101,7 @@
 ;; average.
 ;;
 (define (raw-sub a b)
-  (if (non-digit? (concat a b))
+  (if (non-digit? (.. a b))
       (if (non-integers? a b)
           (fp2u (fp-sub (u2fp a) (u2fp b)))
           (u-sub a b))
@@ -117,8 +117,8 @@
       (fp2u (fp-mul (u2fp a) (u2fp b)))
       (patsubst
        "-0" 0
-       (concat (filter "-" (concat (findstring "-" a) (findstring "-" b)))
-               (u-mul-uns (subst "-" nil a) (subst "-" nil b))))))
+       (.. (filter "-" (.. (findstring "-" a) (findstring "-" b)))
+           (u-mul-uns (subst "-" nil a) (subst "-" nil b))))))
 
 
 ;; Multiply A by B.
@@ -136,7 +136,7 @@
 ;; Divide A by B, rounding down to the nearest integer (flooring).
 ;;
 (define (raw-fdiv a b)
-  (if (non-digit? (concat a b))
+  (if (non-digit? (.. a b))
       (fp2u (fp-div (u2fp a) (u2fp b) "0" nil))
       (or (u-fdiv a b DIV-TRUNCATE)
           NaN)))
@@ -145,7 +145,7 @@
 ;; Return A modulo B -- the remainder after (fdiv A B).
 ;;
 (define (raw-mod a b)
-  (if (non-digit? (concat a b))
+  (if (non-digit? (.. a b))
       (fp2u (fp-mod (u2fp a) (u2fp b)))
       (or (u-fdiv a b DIV-REMAINDER)
           NaN)))
@@ -177,7 +177,7 @@
 ;;
 ;;
 (define (raw-cmp a b)
-  (if (non-digit? (concat a b))
+  (if (non-digit? (.. a b))
       (fp-cmp (u2fp a) (u2fp b))
       (u-cmp-unsigned a b)))
 
@@ -196,20 +196,20 @@
 
 (define (binop name a b)
   (u2d-macro
-   (call (concat (native-name raw-) name)
-         (d2u-macro a)
-         (d2u-macro b))))
+   (native-call (.. (native-name raw-) name)
+                (d2u-macro a)
+                (d2u-macro b))))
 
 
 (define (prec-op name x y p ?arg4)
   (declare (fp-))
   (u2d-macro
    (fp2u
-    (call (concat (native-name fp-) name)
-          (u2fp (d2u-macro x))
-          (u2fp (d2u-macro y))
-          (prec-to-pod p)
-          arg4))))
+    (native-call (.. (native-name fp-) name)
+                 (u2fp (d2u-macro x))
+                 (u2fp (d2u-macro y))
+                 (prec-to-pod p)
+                 arg4))))
 
 
 ;;--------------------------------
@@ -365,7 +365,7 @@
 ;;
 (define `(0- x)
   &public
-  (subst "--" "" (concat "-" x)))
+  (subst "--" "" (.. "-" x)))
 
 
 ;; Absolute value of a number.  This function assumes that X is a valid
@@ -405,7 +405,7 @@
       ;; vectors...
       (if (findstring "!0" (subst "!1" "!0" nums))
           (sum-vec (promote nums)))
-      (fp2d (fp-sum (for u (d2u nums) (u2fp u))))))
+      (fp2d (fp-sum (for (u (d2u nums)) (u2fp u))))))
 
 
 ;; Sum all numbers in ARGS.  Each argument may be a number, or a vector of
@@ -427,10 +427,10 @@
   &public
   (let ((fx (uf-trim-tz (d2fp x))))
     (if (word 3 fx)
-        (u2d (concat (findstring "-" (fp.sign fx))
-                     (concat "0." (smash (fp.uf fx)))
-                     " "
-                     (fp.xpo fx)))
+        (u2d (.. (findstring "-" (fp.sign fx))
+                 (.. "0." (smash (fp.uf fx)))
+                 " "
+                 (fp.xpo fx)))
         (if fx
             "0 0"))))
 
@@ -447,39 +447,38 @@
   (define `(u2d-digit d)
     (words (subst 0 nil 1 "1 " d)))
 
-  (wordlist (u2d-digit (concat skip-start skip-end 1))
+  (wordlist (u2d-digit (.. skip-start skip-end 1))
             (words lst)
-            (+_+ (subst 0 nil 1 "1 " skip-end) lst)))
+            (._. (subst 0 nil 1 "1 " skip-end) lst)))
 
 
 ;; MIN and MAX are unsigned UV numbers.
 ;;
 (define (uv-range min max)
   (define `(uv/10 x)
-    (filter-out "%x" (concat x "x")))
+    (filter-out "%x" (.. x "x")))
 
   (define `(x10 lst)
-    (foreach n lst
-             (concat n "0 " n "1 " n "2 " n "3 " n "4 "
-                     n "5 "n "6 " n "7 " n "8 " n "9 ")))
+    (foreach (n lst)
+      (.. n "0 " n "1 " n "2 " n "3 " n "4 "
+          n "5 "n "6 " n "7 " n "8 " n "9 ")))
 
   (if (u-lt? max min)
       nil
       (uv-trim (lastword min)
                (subst (lastword max) "0" U9)
-               (concat
-                (if (not (word 2 min))
-                    "0 1 2 3 4 5 6 7 8 9 ")
-                (x10 (uv-range (or (uv/10 min) 01) (uv/10 max)))))))
+               (.. (if (not (word 2 min))
+                       "0 1 2 3 4 5 6 7 8 9 ")
+                   (x10 (uv-range (or (uv/10 min) 01) (uv/10 max)))))))
 
 
 ;; UA, UB = absolute value of A and B (UV numbers)
 ;; A<0, B<0 = truthy when A, B are negative
 ;;
 (define (uv-sign-range ua ub a<0 b<0)
-  (concat
+  (..
    ;; Negative range: A ... min(B,-1)
-   (if a<0 (concat (addprefix "-" (reverse (uv-range (if b<0 ub 1) ua))) " "))
+   (if a<0 (.. (addprefix "-" (reverse (uv-range (if b<0 ub 1) ua))) " "))
    ;; Non-negative range: max(A,0) ... B
    (if b<0 nil (uv-range (if a<0 0 ua) ub))))
 
@@ -491,7 +490,8 @@
 (define (raw-range a b)
   ;; Remove sign and extraneous leading zeros.
   (define `(u-prep u)
-    (or (.strip (subst "0" " 0" (filter "01%" (subst "-" nil "01" " 01" u))))
+    (or (native-strip
+         (subst "0" " 0" (filter "01%" (subst "-" nil "01" " 01" u))))
         0))
 
   (strip
@@ -521,18 +521,17 @@
 ;;
 (define (format-fixed x ?min-width ?decimals)
   &public
-  (foreach
-      p (if decimals (d2u decimals) "?")
+  (foreach (p (if decimals (d2u decimals) "?"))
 
-      (if (non-naturals? (if decimals p)
-                         (if min-width (d2u min-width)))
-          (if (and decimals (non-digit? p))
-              "[invalid_DECIMALS]"
-              "[invalid_MIN-WIDTH]")
-          (fp-fix (fp-round (d2fp x) (if decimals p 0) DIV-NEAREST)
-                  min-width
-                  decimals
-                  p))))
+    (if (non-naturals? (if decimals p)
+                       (if min-width (d2u min-width)))
+        (if (and decimals (non-digit? p))
+            "[invalid_DECIMALS]"
+            "[invalid_MIN-WIDTH]")
+        (fp-fix (fp-round (d2fp x) (if decimals p 0) DIV-NEAREST)
+                min-width
+                decimals
+                p))))
 
 
 ;;--------------------------------
@@ -566,9 +565,9 @@
 
 (define `(lex-uns u)
   ;; If initial digit of E begins with 9, add another digit
-  (subst (concat 9 U9) "9909"
+  (subst (.. 9 U9) "9909"
          9 U9
-         (concat (subst 1 nil 0 9 u) u)))
+         (.. (subst 1 nil 0 9 u) u)))
 
 
 (define (lex-exp u)
@@ -579,9 +578,9 @@
 
 (define (fp-lex n)
   (if (fp<0? n)
-      (concat "-" (u-complement-digits (fp-lex (fp-negate n))) ":")
+      (.. "-" (u-complement-digits (fp-lex (fp-negate n))) ":")
       (if (findstring 1 (fp.uf n))
-          (concat (lex-exp (fp.xpo n)) (fp.uf n))
+          (.. (lex-exp (fp.xpo n)) (fp.uf n))
           "0")))
 
 
@@ -609,10 +608,10 @@
 (define (num-sort v)
   &public
   (define `prefixed-v
-    (foreach elem v
-             (concat (num-lex (word 1 (subst "!" " " elem)))
-                     "!#"
-                     elem)))
+    (foreach (elem v)
+      (.. (num-lex (word 1 (subst "!" " " elem)))
+          "!#"
+          elem)))
   (filter-out "%!#" (subst "!#" "!# " (sort prefixed-v))))
 
 
@@ -669,17 +668,15 @@
 ;;
 (define (get-pi ?p)
   &public
-  (or (foreach
-          pod (prec-to-pod p)
+  (or (foreach (pod (prec-to-pod p))
+        (define `count
+          (if (pod-is-place? pod)
+              (u-zeros (u-add-ones pod 1))
+              (nzeros pod)))
 
-          (define `count
-            (if (pod-is-place? pod)
-                (u-zeros (u-add-ones pod 1))
-                (nzeros pod)))
-
-          (or (patsubst "31%" "3.1%"
-                        (u2d (smash (uf-trim-tz (const-pi count)))))
-              0))
+        (or (patsubst "31%" "3.1%"
+                      (u2d (smash (uf-trim-tz (const-pi count)))))
+            0))
 
       "NaN:P"))
 
@@ -694,10 +691,9 @@
 ;;
 (define (atan2 y x ?p)
   &public
-  (or (foreach
-          pod (prec-to-pod p)
-          (fp2d (fp-round (fp-atan2 (d2fp y) (d2fp x) pod)
-                          (or result-pod pod) DIV-NEAREST)))
+  (or (foreach (pod (prec-to-pod p))
+        (fp2d (fp-round (fp-atan2 (d2fp y) (d2fp x) pod)
+                        (or result-pod pod) DIV-NEAREST)))
       "NaN:P"))
 
 

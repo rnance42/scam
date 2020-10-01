@@ -12,7 +12,7 @@
 (define (POut-format value)
   (if (and (numeric? (word 1 value))
            (filter "!:%" (word 2 value)))
-      (concat "(POut " (word 1 value) " " (format (rest value)) ")")))
+      (.. "(POut " (word 1 value) " " (format (rest value)) ")")))
 
 
 (format-add POut-format)
@@ -147,8 +147,7 @@
 (fexpect (POut 5 (PError 5 "] )"))                            (p1 "( a ]"))
 
 ;; vectors
-(fexpect (POut 5 (PList 1 [ (PSymbol 0 "vector")
-                           (PString 2 1) (PString 4 293) ]))
+(fexpect (POut 5 (PVec 1 [ (PString 2 1) (PString 4 293) ]))
         (p1 "[1 293] 3"))
 (fexpect (POut 2 (PError 1 "[") ) (p1 "["))
 (fexpect (POut 3 (PError 3 ") ]")) (p1 "[ ) ]"))
@@ -194,7 +193,7 @@
   (penc "A xxx x B\nC D\n\nE\n    \n\nF xx G"))
 
 (define (test-lnum ch)
-  (define `ndx (words (concat "x " (first (split ch test-lnum-subj)))))
+  (define `ndx (words (.. "x " (first (split ch test-lnum-subj)))))
   (get-subject-line-col ndx test-lnum-subj))
 
 (expect "1:1" (test-lnum "A"))
@@ -207,16 +206,16 @@
 
 ;; describe-error: location
 
-(expect (concat "FILE:2:5: MESSAGE\n"
-                " def\n"
-                "    ^\n")
+(expect (.. "FILE:2:5: MESSAGE\n"
+            " def\n"
+            "    ^\n")
         (describe-error (PError 4 "MESSAGE")
                         "abc\n def\njkl"
                         "FILE"))
 
-(expect (concat "FILE:3:1: MESSAGE\n"
-                ": def\n"
-                "^\n")
+(expect (.. "FILE:3:1: MESSAGE\n"
+            ": def\n"
+            "^\n")
         (describe-error (PError 4 "MESSAGE")
                         "a\n\n: def"
                         "FILE"))

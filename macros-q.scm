@@ -17,20 +17,6 @@
 ;; tests
 ;;--------------------------------------------------------------
 
-;; read-pairs
-
-(define `(test-read-pairs text-pairs)
-  (read-pairs (form-set-indices 0 (p1 text-pairs)) macro-sym "WHERE"))
-
-(expect [ [ (PSymbol 0 "x") (PString 0 1) ]
-          [ (PSymbol 0 "y") (PString 0 2) ] ]
-        (test-read-pairs "((x 1) (y 2))"))
-(expect (PError 0 "invalid VAR in WHERE; expected a symbol")
-        (test-read-pairs "((1 1) (y 2))"))
-(expect (PError 0 "missing VALUE in WHERE")
-        (test-read-pairs "((x) (y 2))"))
-(expect (PError 0 "invalid (VAR VALUE) in WHERE; expected a list")
-        (test-read-pairs "(sym (x 1))"))
 
 ;;--------------------------------
 ;; (print args...)
@@ -52,17 +38,8 @@
 ;;--------------------------------
 
 (expect "ab(.or 1)" (c0-ser "(concat \"a\" \"b\" (or 1))"))
-
-(expect "`{1}(.call ^n,1,{9})"
-        (c0-ser "(lambda (a b c d e f g h i) (concat a i))"))
-
-;;--------------------------------
-;; (vector FORM...)
-;;--------------------------------
-
-(expect "1 2" (c0-ser "(vector 1 2)"))
-(expect ["a" "b c" "d"] (c0-ser "(vector \"a\" \"b c\" \"d\")"))
-(expect "(^d (.or 1))" (c0-ser "(vector (or 1))"))
+(expect "ab(.or 1)" (c0-ser "(.. \"a\" \"b\" (or 1))"))
+(expect "a b (.or 1)" (c0-ser "(._. \"a\" \"b\" (or 1))"))
 
 ;;--------------------------------
 ;; (subst FROM TO {FROM TO}... STR)
@@ -86,7 +63,7 @@
 (expect (c0-ser "(set f 1 2)")
         "(^fset F,1,2)")
 (expect (c0-ser "(set f 1 2 2)")
-        "!(PError 2 '\\'set\\' accepts 2 or 3 arguments, not 4')")
+        "!(PError 2 '`set` accepts 2 or 3 arguments, not 4')")
 (expect (c0-ser "(set 1 2 2)")
         "!(PError 4 'invalid NAME in (set NAME VALUE [RETVAL]); expected a symbol')")
 
@@ -97,29 +74,29 @@
 (expect (c0-ser "(? f 1)")
         "(^t F,1)")
 (expect (c0-ser "(? m a)"
-                { m: (EFunc NoGlobalName "." 1 nil) })
+                { m: (EMacro "p" "." 1 (IArg 0 ".")) })
         "!(PError 4 'FUNC in (? FUNC ...) is not traceable')")
 
 ;;--------------------------------
-;; (let ((VAR VAL)...) BODY)
+;; (let ((TARGET VAL)...) BODY)
 ;;--------------------------------
 
 (expect (c0-ser "(let ((a 1) (b \"q\")) (f a b))")
         (c0-ser "((lambda (a b) (f a b)) 1 \"q\")"))
+(expect (c0-ser "(let (([a b] 9)) (.. a b))")
+        "(^Y `(^n 1,{1})(^n 2,{1}),9)")
 (expect (c0-ser "(let a a)")
-        (concat
-         "!(PError 4 'invalid ((VAR VALUE)...) in (let ((VAR VALUE)...) BODY)"
-         "; expected a list')"))
+        "!(PError 4 'expected ((TARGET VALUE)...) in (let ((TARGET VALUE)...) BODY)')")
 (expect (c0-ser "(let (a) a)")
-        (concat
-         "!(PError 5 'invalid (VAR VALUE) in (let ((VAR VALUE)...) BODY)"
-         "; expected a list')"))
-(expect (c0-ser "(let ((\"a\")) a)")
-        (concat
-         "!(PError 6 'invalid VAR in (let ((VAR VALUE)...) BODY)"
-         "; expected a symbol')"))
+        "!(PError 5 'expected (TARGET VALUE) in (let ((TARGET VALUE)...) BODY)')")
 (expect (c0-ser "(let ((a)) a)")
-        "!(PError 5 'missing VALUE in (let ((VAR VALUE)...) BODY)')")
+        "!(PError 5 'missing VALUE in (let ((TARGET VALUE)...) BODY)')")
+(expect 1 (see "!(PError 6 'invalid assignment target"
+               (c0-ser "(let ((\"a\" 1)) a)")))
+(expect 1 (see "!(PError 6 ''?NAME' and '...NAME' cannot be used"
+               (c0-ser "(let ((?a 1)) a)")))
+(expect 1 (see "!(PError 6 ''?NAME' and '...NAME' cannot be used"
+               (c0-ser "(let ((...a 1)) a)")))
 
 ;;--------------------------------
 ;; (let-global ((VAR VALUE)...) BODY)
@@ -129,73 +106,152 @@
         "(^set V,(^set V,1,{V}),(.value F))")
 (expect (c0-ser "(let-global ((v 1) (f 2)) 9)")
         "(^set V,(^set V,1,{V}),(^fset F,(^fset F,2,(.value F)),9))")
+(expect (c0-ser "(let-global (([v] 1) (f 2)) 9)")
+        "(^set V,(^set V,(^n 1,1),{V}),(^fset F,(^fset F,2,(.value F)),9))")
+
+(expect (c0-ser "(let-global (([x y] 5) (f 2)) a)"
+                {x: (EVar "p" "X"),
+                 y: (EVar "p" "Y"),
+                 f: (EFunc "p" "F" 1),
+                 a: (EDefn.arg 1 ".")})
+        (.. "(^Y `(^set X,(^set X,(^n 1,{1}),{X}),"
+            "(^set Y,(^set Y,(^n 2,{1}),{Y}),"
+            "(^fset F,(^fset F,2,(.value F)),{.1}))),5)"))
 
 ;;--------------------------------
-;; (let& ((VAR VAL)...) BODY)
+;; (let& ((TARGET VAL)...) BODY)
 ;;--------------------------------
-
-(expect (let&-env [ [ (PSymbol 0 "x") (PString 0 1) ]
-                    [ (PSymbol 0 "y") (PSymbol 0 "Y") ] ]
-                  { Y: (EVar "yname" "x") }
-                  ".")
-        { y: (EIL "." "-" (IVar "yname")),
-          x: (EIL "." "-" (IString 1)),
-          Y: (EVar "yname" "x") })
 
 (expect "1" (c0-ser "(let& ((a 1)) a)"))
 (expect "2" (c0-ser "(let& ((a 1) (b 2)) b)"))
 (expect "3" (c0-ser "(let& ((a 1) (b 2) (a 3)) a)"))
+(expect "(^n 2,x y z)" (c0-ser "(let& (([a b] \"x y z\")) b)"))
+
+;; capture in sym macro value
+(c0-ser "(foreach n 1 (let& ((m n)) (.. m (lambda () m))))"
+        "(.foreach \"0,1,{\"0}`{.n\"0})")
+(c0-ser "(let& ((m (foreach n,1,n))) (.. m (lambda () m))))"
+        "(.foreach \"0,1,{\"0})`(.foreach \"0,1,{\"0})")
 
 ;;--------------------------------
-;; (foreach VAR LIST BODY)
+;; (foreach (VAR LIST DELIM?) BODY)
 ;;--------------------------------
 
-(expect (c0-ser "(foreach v \"1 2 3\" v)")
-        "(.foreach v,1 2 3,{v})")
+(expect (c0-ser "(foreach (z 1) z)" nil)
+        "(.foreach ;,1,{;})")
+
+(expect (c0-ser "(foreach (z 1 \" \") z)" nil)
+        "(.foreach ;,1,{;})")
+
+(expect (.. "(.subst ~x,,(.subst ~x~x ,(.subst ~,~~x,{G}),"
+            "(.foreach ;,1,(.subst ~,~~x,{;})~x~x)))")
+        (c0-ser "(foreach (z 1 g) z)" {g: (EVar "p" "G")}))
+
+(expect 1 (see "!(PError 2 'missing TARGET in (foreach (TARGET LIST ?DELIM) BODY)"
+               (c0-ser "(foreach ())")))
+
+(expect 1 (see "!(PError 2 'missing LIST in (foreach (TARGET LIST ?DELIM) BODY)')"
+               (c0-ser "(foreach (a))")))
+
+(expect 1 (see "!(PError 2 'missing BODY in (foreach (TARGET"
+               (c0-ser "(foreach (a 1))")))
+
+;; destructuring
+(expect (c0-ser "(foreach {=a:b} \"1 2 3\" (f a b))")
+        "(.foreach ;,1 2 3,(F (^dk {;}),(^dv {;})))")
+(expect (c0-ser "(foreach {key:a} \"1 2 3\" (f a \"\"))")
+        "(.foreach ;,1 2 3,(F (^dv (.filter key!=%,{;})),))")
+(expect (c0-ser "(foreach [a b] \"1 2 3\" (f a b))")
+        "(.foreach ;,1 2 3,(F (^n 1,{;}),(^n 2,{;})))")
+
+;;--------------------------------
+;; old: (foreach VAR LIST BODY)
+;;--------------------------------
+
+(expect (c0-ser "(foreach v \"1 2 3\" v)" "-")
+        "(.foreach ;,1 2 3,{;})")
+(expect (c0-ser "(foreach x \"1 2 3\" (foreach y 4 (f x y)))")
+        "(.foreach ;,1 2 3,(.foreach ;;,4,(F {;},{;;})))")
+(expect (c0-ser "(lambda (a) (define `m a) m)")
+        "`{1}")
+(expect (c0-ser "(begin (define `m (foreach v \"1 2 3\" v)) m)")
+        "(.foreach ;,1 2 3,{;})")
+(expect (c0-ser "(foreach N 3 (lambda () N))")
+        "(.foreach ;,3,`{.;})")
+(expect (c0-ser "(begin (define `m (foreach v \"1 2 3\" v)) (lambda () m))")
+        "`(.foreach ;,1 2 3,{;})")
 (expect (c0-ser "(foreach a b)")
-        "!(PError 2 'missing BODY in (foreach VAR LIST BODY)')")
+        "!(PError 2 'missing BODY in (foreach TARGET LIST BODY)')")
 (expect (c0-ser "(foreach a)")
-        "!(PError 2 'missing LIST in (foreach VAR LIST BODY)')")
+        "!(PError 2 'missing LIST in (foreach TARGET LIST BODY)')")
 (expect (c0-ser "(foreach)")
-        (concat
-         "!(PError 2 'missing VAR in (foreach VAR LIST BODY)"
-         "; expected a symbol')"))
+        (.. "!(PError 2 'missing TARGET in (foreach TARGET LIST BODY)"
+            "; expected a symbol')"))
 
 ;;--------------------------------
-;; (for VAR VEC BODY)
+;; (for (VAR VEC) BODY)
+;;--------------------------------
+
+(expect (c0-ser "(for (x \"1 2 3\") (and x))")
+        "(.foreach ;,1 2 3,(^d (.and (^u {;}))))")
+
+;;--------------------------------
+;; old: (for VAR VEC BODY)
 ;;--------------------------------
 
 (expect (c0-ser "(for x \"1 2 3\" (and x))")
-        "(.foreach x,1 2 3,(^d (.and (^u {x}))))")
+        "(.foreach ;,1 2 3,(^d (.and (^u {;}))))")
 
 ;;--------------------------------
-;; (append-for VAR VEC BODY)
+;; (append-for (VAR VEC) BODY)
+;;--------------------------------
+
+(expect (c0-ser "(append-for (x \"1 2 3\") x)")
+        "(.filter %,(.foreach ;,1 2 3,(^u {;})))")
+
+;;--------------------------------
+;; old: (append-for VAR VEC BODY)
 ;;--------------------------------
 
 (expect (c0-ser "(append-for x \"1 2 3\" x)")
-        "(.filter %,(.foreach x,1 2 3,(^u {x})))")
+        "(.filter %,(.foreach ;,1 2 3,(^u {;})))")
 
 ;;--------------------------------
-;; (concat-for VAR VEC DELIM BODY)
+;; (concat-for (VAR VEC ?DELIM) BODY)
 ;;--------------------------------
-
-(expect "aBc"
-        (il-ser (il-subst "b" "B" (IString "abc"))))
-(expect "(.subst b,B,{V})"
-        (il-ser (il-subst "b" "B" (IVar "V"))))
 
 ;; delim == " "
-(expect "(.foreach x,a b,(^u {x}))"
-        (c0-ser "(concat-for x \"a b\" \" \" x)"))
+(expect (c0-ser "(concat-for (x \"a b\" \" \") x)" { d: (EVar "p" "D") })
+        "(.foreach ;,a b,(^u {;}))")
 
-;; delim == IString
-(expect "(.subst |1,|,(.subst |0, ,(.subst  ,|1,(.foreach x,a b,(.subst  ,|0,(.subst |,|1,(^u {x})))))))"
-        (c0-ser "(concat-for x \"a b\" \"|\" x)"))
+
+;; delim == IString   (that contains "~x")
+(expect (c0-ser "(concat-for (x \"a b\" \"~x\") x)" { d: (EVar "p" "D" ) })
+        (.. "(.subst ~x,,(.subst ~x~x ,~~xx,"
+            "(.foreach ;,a b,(.subst ~,~~x,(^u {;}))~x~x)))"))
 
 ;; general case
-(expect "(.subst |1,|,(.subst |0, ,(.subst  ,(.subst |,|1,{D}),(.foreach x,a b,(.subst  ,|0,(.subst |,|1,(^u {x})))))))"
-        (c0-ser "(concat-for x \"a b\" d x)"
-                { d: (EVar "D" nil) }))
+(expect (.. "(.subst ~x,,(.subst ~x~x ,(.subst ~,~~x,{D}),"
+            "(.foreach ;,a b,(.subst ~,~~x,(^u {;}))~x~x)))")
+        (c0-ser "(concat-for (x \"a b\" d) x)" { d: (EVar "p" "D") }))
+
+;;--------------------------------
+;; old: (concat-for VAR VEC DELIM BODY)
+;;--------------------------------
+
+;; delim == " "
+(expect "(.foreach ;,a b,(^u {;}))"
+        (c0-ser "(concat-for x \"a b\" \" \" x)" { d: (EVar "p" "D") }))
+
+;; delim == IString   (that contains "~x")
+(expect (.. "(.subst ~x,,(.subst ~x~x ,~~xx,"
+            "(.foreach ;,a b,(.subst ~,~~x,(^u {;}))~x~x)))")
+        (c0-ser "(concat-for x \"a b\" \"~x\" x)" { d: (EVar "p" "D" ) }))
+
+;; general case
+(expect (.. "(.subst ~x,,(.subst ~x~x ,(.subst ~,~~x,{D}),"
+            "(.foreach ;,a b,(.subst ~,~~x,(^u {;}))~x~x)))")
+        (c0-ser "(concat-for x \"a b\" d x)" { d: (EVar "p" "D") }))
 
 ;;--------------------------------
 ;; (cond (TEST BODY)...)
@@ -217,35 +273,34 @@
 
 (expect "V"
         (c0-ser "(native-name v)"))
-(expect "!(PError 4 '\\'a\\' is not a global variable')"
+(expect "!(PError 4 '`a` is not a global variable')"
         (c0-ser "(native-name a)"))
 (expect "!(PError 4 'invalid NAME in (native-name NAME); expected a symbol')"
         (c0-ser "(native-name 1)"))
-(expect "!(PError 2 '\\'native-name\\' accepts 1 argument, not 2')"
+(expect "!(PError 2 '`native-name` accepts 1 argument, not 2')"
         (c0-ser "(native-name v v)"))
 
 ;;--------------------------------
 ;; (defmacro (NAME ARG...) BODY)
 ;;--------------------------------
 
-(let ((out (c0 (p1 "(defmacro (foo a) a)") nil)))
-  (case out
-    ((IEnv env il)
-     (fexpect env
-              (xns { foo: (EXMacro "~foo" "x") }))
-     (expect (il-ser (case il
-                       ((IEnv _ node) node)
-                       (else il)))
-             (xns "(^fset ~foo,`{1})")))
-    (else
-     ;; not an ILEnv
-     (expect 1 0))))
+(case (c0 (p1 "(defmacro (foo a) a)") nil)
+  ((IEnv env il)
+   (fexpect env
+            (xns { foo: (EXMacro "x" "~foo") }))
+   (expect (il-ser (case il
+                     ((IEnv _ node) node)
+                     (else il)))
+           (xns "(^fset ~foo,`{1})")))
+  (else
+   ;; not an ILEnv
+   (expect 1 0)))
 
 (p1-block-cc
  "(defmacro (foo a) a)"
  (lambda (env sil)
    (expect sil (xns "(^fset ~foo,`{1})"))
-   (expect env (xns { foo: (EXMacro "~foo" "x") }))))
+   (expect env (xns { foo: (EXMacro "x" "~foo") }))))
 
 
 ;;--------------------------------
@@ -289,7 +344,7 @@
                     nil nil nil)
         (PError 0 "invalid CTOR in (data NAME (CTOR ARG...)...); expected a symbol"))
 
-;; ml.special-data
+;; M.data
 (expect (c0-ser "(data 1 (X))")
         "!(PError 4 'invalid NAME in (data NAME (CTOR ARG...)...); expected a symbol')")
 ;; ... cascaded error
@@ -300,7 +355,7 @@
  "(data T (CA a &word b &list c) (CB))"
  (lambda (env sil)
    (expect (dict-get "CA" env)
-           (ERecord "S W L" "p" "!:T0"))
+           (ERecord "p" "S W L" "!:T0"))
    ;; ^at is &native
    (expect sil
            "(^at !1:T0!=CA!0S!0W!0L !1:T1!=CB)")))
@@ -309,50 +364,184 @@
  "(data T &public (CA a &word b &list c))"
  (lambda (env sil)
    (expect (dict-get "CA" env)
-           (ERecord "S W L" "x" "!:T0"))))
+           (ERecord "x" "S W L" "!:T0"))))
 
 
 ;;--------------------------------
 ;; (case VALUE (PATTERN BODY)... )
 ;;--------------------------------
 
-(expect
- (arg-bindings [ (PSymbol 0 "a") (PSymbol 0 "b") ]
-               "W S"
-               (IString 123)
-               ".")
- { a: (EIL "." "-" (IBuiltin "word" [ (IString 2) (IString 123) ])),
-   b: (EIL "." "-" (ICall "^n" [ (IString 3) (IString 123) ])) })
+
+(define _a (PSymbol 1 "a"))
+(define _x (PSymbol 5 "x"))
+(define _y (PSymbol 6 "y"))
+(define _?y (PSymbol 16 "?y"))
+(define Ctor1-tag "!:C1")
+(define Ctor1-encs "W L")
+(define Ctor1-record  (ERecord "p" Ctor1-encs Ctor1-tag))
+(define _Ctor1        (PSymbol 101 "Ctor1"))
+(define _Ctor1_x_y    (PList 102 [_Ctor1 _x _y]))
+(define _<x>          (PVec 103 [_x]))
+(define _Ctor1_<x>_y  (PList 102 [_Ctor1 _<x> _y]))
+
+(define case-env { Ctor1: Ctor1-record })
+
+
+;; NXMAP -> list of {name: il} / [PError]
+;;
+(define `(nxmap-apply nxmap)
+  (append-for (rec nxmap)
+    (case rec
+      ((Bind name xtor)
+       { =name: (xtor identity) })
+      (o [o]))))
+
+
+;; Apply `nxmap-apply` to each NXMAP field in [ (Clause tag nxmap body)... ]
+;;
+(define `(Clauses-apply clauses)
+  (for (c clauses)
+    (case c
+      ((Clause tag nxmap body)
+       (Clause tag (nxmap-apply nxmap) body))
+      (_ _))))
+
+
+(expect (case-parse [(PList 7 [])] case-env)
+        [(PError 7 "missing PATTERN in (case VALUE (PATTERN BODY)...)")])
+
+(expect (case-parse [(PList 7 [_Ctor1_x_y])] case-env)
+        [(PError 7 "missing BODY in (case VALUE (PATTERN BODY)...)")])
+
+(expect (case-parse [(PList 7 [(PList 9 [_a _x _y]) _x])] case-env)
+        [(PError 1 "expected a record constructor name")])
+
+(expect (case-parse [_a] case-env)
+        [(PError 1 "invalid (PATTERN BODY) in (case VALUE (PATTERN BODY)...); expected a list")])
+
+(expect (case-parse [(PList 9 [_?y _y])] case-env)
+        [(PError 16 "'?NAME' can appear only in parameter lists after all non-optional parameters")])
+
+
+;; simple ctor pattern
+(expect (Clauses-apply (case-parse [(PList 0 [_Ctor1_x_y _x])]
+                                    case-env))
+        [(Clause Ctor1-tag
+                 {x: (il-word 2 identity), y: (il-nth-rest 3 identity)}
+                 [_x])])
+
+;; target in pattern
+(expect (Clauses-apply (case-parse [(PList 0 [_Ctor1_<x>_y _x])]
+                                    case-env))
+        [(Clause Ctor1-tag
+                 {x: (il-nth 1 (il-word 2 identity)),
+                  y: (il-nth-rest 3 identity)}
+                 [_x])])
+
+;; pattern is a symbol
+(expect (Clauses-apply (case-parse [(PList 0 [_x _x])] case-env))
+        [(Clause "" {x: identity} [_x])])
+
+;; pattern is a vector target
+(expect (Clauses-apply (case-parse [(PList 0 [_<x> _x])] case-env))
+        [(Clause "" {x: (il-nth 1 identity)} [_x])])
+
+;; [C] -> [C2]
+(expect (case-bodies [(Clause "" [(Bind "x" (lambda (il) (il-nth 1 il)))] [_x])]
+                     (IVar "V")
+                     [])
+        [ ["" (il-nth 1 (IVar "V"))] ])
+
+
+
+(expect (case-merge [ ["a" (IVar "V")]
+                      ["b" (IVar "V")]
+                      ["c" (IVar "X")]
+                      ["" (IVar "X")] ])
+        [ ["a b" (IVar "V")]
+          ["" (IVar "X")] ])
+
+
+(expect (case-fold [ ["a b" (IVar "V")]
+                     ["c" (IVar "X")] ]
+                   (lambda (tag) [(IString (addsuffix "%" tag)) (IVar "R")]))
+        (IBuiltin "if" [ (IBuiltin "filter" [ (IString "a% b%") (IVar "R")])
+                         (IVar "V")
+                         (IBuiltin "if" [ (IBuiltin "filter" [ (IString "c%")
+                                                               (IVar "R")])
+                                          (IVar "X")
+                                          (IString "")])]))
+
+(expect (case-fold [ ["a b" (IVar "V")]
+                     ["" (IVar "X")] ]
+                   (lambda (tag) [ (IString (addsuffix "%" tag)) (IVar "R")]))
+        (IBuiltin "if" [ (IBuiltin "filter" [ (IString "a% b%") (IVar "R") ])
+                         (IVar "V")
+                         (IVar "X") ]))
+
+
+;; eval-only-once?
+
+(expect nil (eval-only-once? (IArg ";" ".")))
+(expect nil (eval-only-once? (IVar "x")))
+(expect nil (eval-only-once? (IString "x")))
+(expect nil (eval-only-once? (ICall "^n" [(IString 1) (IVar "x")])))
+(expect nil (eval-only-once? (IBuiltin "wordlist" [(IString 1) (IVar "x")])))
+(assert (eval-only-once? (ICall "^n" [(IString 1) (IBlock [])])))
+(assert (eval-only-once? (ICall "foo" [])))
+(assert (eval-only-once? (IBlock [])))
+
+;; c0-case
+
+;; error
+(expect (c0-ser "(case)")
+        "!(PError 2 'missing VALUE in (case VALUE (PATTERN BODY)...)')")
+
+(define tc-env
+  (append { C: (ERecord "p" "S W L" "!:T0") }
+          { D: (ERecord "p" "S W" "!:T1") }
+          { F: (EFunc "p" "F" 0) }
+          default-env))
 
 ;; single case
-(expect (c0-ser "(case v ((Ctor s w v) v))"
-               (append { Ctor: (ERecord "S W L" "." "!:T0") }
-                       default-env))
-        "(.if (.filter !:T0,(.word 1,{V})),(.wordlist 4,99999999,{V}))")
+(expect (c0-ser "(case v ((C s w v) v))" tc-env)
+        "(.if (.filter !:T0,(.word 1,{V})),(.wordlist 4,99999999,{V}),)")
 
 ;; multiple cases
-(expect (c0-ser "(case v ((Ctor s w l) l) (a a))"
-                (append { Ctor: (ERecord "S W L" "." "!:T0") }
-                        default-env))
+(expect (c0-ser "(case v ((C s w l) l) (a a))" tc-env)
         "(.if (.filter !:T0,(.word 1,{V})),(.wordlist 4,99999999,{V}),{V})")
 
-;; non-ctor in pattern
-(expect (c0-ser "(case v ((Foo a) 1))")
-        "!(PError 8 'symbol \\'Foo\\' does not identify a record type')")
-
 ;; bad value expr
-(expect (c0-ser "(case bogus)")
-        "!(PError 4 'undefined variable \\'bogus\\'')")
+(expect 1 (see "!(PError 4 'undefined variable: `bogus`')"
+               (c0-ser "(case bogus)")))
 
 ;; wrong number of arguments
-(expect (c0-ser "(case v ((Ctor s l) l))"
-                (append { Ctor: (ERecord "S W L" "." "!:T0") }
-                        default-env))
-        "!(PError 8 '\\'Ctor\\' accepts 3 arguments, not 2')")
+(expect (c0-ser "(case v ((C s l) l))" tc-env)
+        "!(PError 8 '`C` accepts 3 arguments, not 2')")
+
+;; captures in value
+(expect (c0-ser "(lambda (v) (case v ((C a b c) a)))" tc-env)
+        "`(.if (.filter !:T0,(.word 1,{1})),(^n 2,{1}),)")
+(expect (c0-ser "(lambda (v) (case v ((C a b c) (lambda () a))))" tc-env)
+        "`(.if (.filter !:T0,(.word 1,{1})),`(^n 2,{.1}),)")
+(expect (c0-ser "(foreach v 1 (case v ((C a b c) (lambda () a))))" tc-env)
+        "(.foreach ;,1,(.if (.filter !:T0,(.word 1,{;})),`(^n 2,{.;}),))")
+
+;; complex value => use `foreach`
+(expect (c0-ser "(case (F) ((C a b c) (lambda () a)))" tc-env)
+        (.. "(.foreach ;,(^d (F )),(.if (.filter !1:T0!0%,{;}!0),"
+            "`(^n 2,(^u {.;})),))"))
+
+;; nested complex value => generate unique auto var
+(expect (c0-ser "(case (F) ((C a b c) (case (F) (else 1))))" tc-env)
+        (.. "(.foreach ;,(^d (F )),(.if (.filter !1:T0!0%,{;}!0),"
+            "(.foreach ;;,(^d (F )),1),))"))
 
 ;; collapse clauses with equivalent bodies
-(expect (c0-ser "(case v ((C a b c) b) ((D a b) b) (a a))"
-                (append { C: (ERecord "S W L" "." "!:T0") }
-                        { D: (ERecord "S W" "." "!:T1") }
-                        default-env))
+(expect (c0-ser "(case v ((C a b c) b) ((D a b) b) (a a))" tc-env)
         "(.if (.filter !:T0 !:T1,(.word 1,{V})),(.word 3,{V}),{V})")
+
+;; complex value & collapsed clauses
+(expect (c0-ser "(case (F) ((C a b c) b) ((D a b) b))" tc-env)
+        (.. "(.foreach ;,(^d (F )),(.if (.filter !1:T0!0% !1:T1!0%,{;}!0),"
+            "(.word 3,(^u {;})),))"))

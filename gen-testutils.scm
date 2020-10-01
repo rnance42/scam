@@ -21,12 +21,12 @@
         ((PString  n v) (PString pos v))
         ((PSymbol  n v) (PSymbol pos v))
         ((PError   n v) (PError pos v))
-        ((PList    n subs) (PList pos (for f subs (recur f))))
+        ((PList    n subs) (PList pos (for (f subs) (recur f))))
         ((PQuote   n sub) (PQuote pos (recur sub)))
         ((PQQuote  n sub) (PQQuote pos (recur sub)))
         ((PUnquote n sub) (PUnquote pos (recur sub)))
         ((PSplice  n sub) (PSplice pos (recur sub)))
-        (else (concat "ERROR:form-set-indices(" form ")")))))
+        (else (.. "ERROR:form-set-indices(" form ")")))))
 
 
 ;; form-set-indices
@@ -41,20 +41,22 @@
 (define (il-ser node)
   &public
   (define `(call-ser pre args)
-    (concat "(" pre " " (concat-for a args "," (il-ser a)) ")"))
+    (.. "(" pre " " (concat-for (a args ",") (il-ser a)) ")"))
 
   (case node
     ((IString value) value)
-    ((IVar name) (concat "{" name "}"))
-    ((IBuiltin name args) (call-ser (concat "." name) args))
+    ((IVar name) (.. "{" name "}"))
+    ((IBuiltin name args) (call-ser (.. "." name) args))
+    ((IFor name list body) (call-ser ".foreach" [(IString  name) list body]))
     ((ICall name args) (call-ser name args))
-    ((ILocal ndx level) (concat "{" ndx (filter-out "^0" (concat "^" level)) "}"))
+    ((IArg ndx ups) (.. "{" (if ups (patsubst ".%" "%" ups) "!")
+                        (patsubst "=%" "%" ndx) "}"))
     ((IFuncall nodes) (call-ser "^Y" nodes))
-    ((IConcat values) (concat-for v values "" (il-ser v)))
+    ((IConcat values) (concat-for (v values "") (il-ser v)))
     ((IBlock nodes) (if (word 2 nodes)
                        (call-ser "IBlock" nodes)
                        (il-ser (first nodes))))
-    ((ILambda code) (concat "`" (il-ser code)))
+    ((ILambda code) (.. "`" (il-ser code)))
     (else (if node
               ;; convert (") to (') to simplify assertions
               (subst "\"" "'" (sprintf "!%q" node))))))
@@ -65,12 +67,14 @@
 ;;
 (define default-env
   &public
-  { a: (EArg "1"),
-    v: (EVar "V" "."),
-    f: (EFunc "F" "." 2 nil),
-    ;; names that an extra promote/demote will corrupt...
-    "f!0!": (EFunc "F!0!" "." 2 nil),
-    "d!0!": (EVar "D!0!" ".") })
+  (append
+   (depth-marker ".")
+   { a: (EDefn.arg 1 "."),
+     v: (EVar "p" "V"),
+     f: (EFunc "p" "F" 2),
+     ;; names that an extra promote/demote will corrupt...
+     "f!0!": (EFunc "p" "F!0!" 2),
+     "d!0!": (EVar "p" "D!0!") }))
 
 
 ;; Compile one or more forms to serialized IL.
@@ -83,8 +87,8 @@
 ;;
 (define (pN text)
   &public
-  (for f (parse-text text)
-       (form-set-indices 0 f)))
+  (for (f (parse-text text))
+    (form-set-indices 0 f)))
 
 ;; Parse *one* form from text.
 ;;
@@ -92,7 +96,7 @@
   &public
   (let ((o (parse-text text)))
     (if (word 2 o)
-        (concat "EXTRA NODES: " o))
+        (.. "EXTRA NODES: " o))
     (first o)))
 
 ;; Compile one or more expressions a a block, calling k with `sil` and `env`
@@ -101,7 +105,7 @@
 ;;
 (define (p1-block-cc text k)
   &public
-  (c0-block-cc nil (pN text)
+  (c0-block-cc nil (parse-text text)
                (lambda (env nodes)
                  (k env (il-ser (IBlock nodes))))))
 

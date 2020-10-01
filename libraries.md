@@ -2,15 +2,117 @@
 
 | Module | Exports |
 | :-- | :-- |
-| [core](#core-general-purpose-functions) | [`1+`](#1-n) [`append`](#append-a-b-c-d-e-f-g-h-others) [`assert`](#assert-cond) [`assoc`](#assoc-key-vecv) [`assoc-initial`](#assoc-initial-prefix-vec) [`assoc-vec`](#assoc-vec-key-vec-vecv) [`butlast`](#butlast-vec) [`concat-vec`](#concat-vec-vec-delim) [`conj`](#conj-vec-item) [`cons`](#cons-item-vec) [`dict-collate`](#dict-collate-pairs) [`dict-compact`](#dict-compact-dict-result) [`dict-find`](#dict-find-key-dict) [`dict-get`](#dict-get-key-dict-default) [`dict-key`](#dict-key-pair) [`dict-keys`](#dict-keys-dict) [`dict-remove`](#dict-remove-key-dict) [`dict-set`](#dict-set-key-value-dict) [`dict-value`](#dict-value-pair) [`dict-values`](#dict-values-dict) [`eq?`](#eq-a-b) [`expect`](#expect-a-b) [`expect-x`](#expect-x-a-b-file-line) [`fexpect`](#fexpect-a-b) [`foldl`](#foldl-f-z-v) [`foldr`](#foldr-f-z-v) [`format`](#format-str) [`format-add`](#format-add-func) [`identity`](#identity-a) [`index-of`](#index-of-vec-item) [`indices`](#indices-lst) [`intersperse`](#intersperse-value-vec) [`last`](#last-vec) [`memoize`](#memoize-funcname) [`numeric?`](#numeric-s) [`printf`](#printf-fmt-values) [`reverse`](#reverse-list) [`see`](#see-substr-str) [`select-vec`](#select-vec-fn-list) [`select-words`](#select-words-fn-list) [`sort-by`](#sort-by-key-func-values) [`split`](#split-delim-str) [`sprintf`](#sprintf-fmt-values) [`strip`](#strip-vec) [`trace-expect`](#trace-expect-a-b) [`uniq`](#uniq-vec) [`vec-intersect`](#vec-intersect-a-b) [`vec-or`](#vec-or-vec) [`vec-subtract`](#vec-subtract-a-b) [`vsprintf`](#vsprintf-fmt-values) [`while`](#while-pred-do-initial) [`word-index?`](#word-index-n) [`xor`](#xor-a-b) |
+| [compile](#compile-scam-compilation) | [`build-program`](#build-program-src-file-exe-file-build-dir-is-quiet) [`compile-text`](#compile-text-text-file-env-in-build-dir-is-quiet) [`run-program`](#run-program-src-file-argv-build-dir-is-quiet) |
+| [core](#core-general-purpose-functions) | [`1+`](#1-n) [`append`](#append-a-b-c-d-e-f-g-h-others) [`assert`](#assert-cond) [`assoc`](#assoc-key-vecv) [`assoc-initial`](#assoc-initial-prefix-vec) [`assoc-vec`](#assoc-vec-key-vec-vecv) [`butlast`](#butlast-vec) [`concat-vec`](#concat-vec-vec-delim) [`conj`](#conj-vec-item) [`cons`](#cons-item-vec) [`dict-collate`](#dict-collate-pairs) [`dict-compact`](#dict-compact-dict-result) [`dict-find`](#dict-find-key-dict) [`dict-get`](#dict-get-key-dict-default) [`dict-key`](#dict-key-key-_) [`dict-keys`](#dict-keys-dict) [`dict-remove`](#dict-remove-key-dict) [`dict-set`](#dict-set-key-value-dict) [`dict-value`](#dict-value-_-value) [`dict-values`](#dict-values-dict) [`eq?`](#eq-a-b) [`expect`](#expect-a-b) [`expect-x`](#expect-x-a-b-file-line) [`fexpect`](#fexpect-a-b) [`foldl`](#foldl-f-z-v) [`foldr`](#foldr-f-z-v) [`format`](#format-str) [`format-add`](#format-add-func) [`identity`](#identity-a) [`index-of`](#index-of-vec-item) [`indices`](#indices-lst) [`intersperse`](#intersperse-value-vec) [`last`](#last-vec) [`memoize`](#memoize-funcname) [`numeric?`](#numeric-s) [`permute`](#permute-lst-zz-prefix) [`printf`](#printf-fmt-values) [`repeat-words`](#repeat-words-v-n) [`reverse`](#reverse-list) [`see`](#see-substr-str) [`select-vec`](#select-vec-fn-list) [`select-words`](#select-words-fn-list) [`sort-by`](#sort-by-key-func-values) [`split`](#split-delim-str) [`sprintf`](#sprintf-fmt-values) [`strip`](#strip-vec) [`trace-expect`](#trace-expect-a-b) [`uniq`](#uniq-vec) [`urange`](#urange-min-max) [`vec-intersect`](#vec-intersect-a-b) [`vec-or`](#vec-or-vec) [`vec-subtract`](#vec-subtract-a-b) [`vsprintf`](#vsprintf-fmt-values) [`vsprintfx`](#vsprintfx-fmt-values-codes-fmt-fn) [`while`](#while-pred-do-initial) [`word-index?`](#word-index-n) [`xor`](#xor-a-b) |
 | [getopts](#getopts-command-line-options-parser) | [`getopts`](#getopts-argv-opts) |
-| [intrinsics](#intrinsics) | [`?`](#-fn-args) [`abspath`](#abspath-paths) [`addprefix`](#addprefix-prefix-list) [`addsuffix`](#addsuffix-suffix-paths) [`append-for`](#append-for-var-vector-body) [`apply`](#apply-lambda-vec) [`at-exit`](#at-exit-func) [`basename`](#basename-paths) [`begin`](#begin-exprs) [`case`](#case-value-clauses) [`concat`](#concat-values) [`concat-for`](#concat-for-var-vector-delim-body) [`cond`](#cond-clauses) [`current-env`](#current-env) [`current-file-line`](#current-file-line) [`data`](#data-name-ctors) [`declare`](#declare-forms) [`declare`](#declare-forms) [`demote`](#demote-value) [`dir`](#dir-paths) [`do-not-trace`](#do-not-trace-names) [`error`](#error-message) [`filter`](#filter-patterns-list) [`filter-out`](#filter-out-patterns-list) [`filtersub`](#filtersub-pat-repl-str) [`findstring`](#findstring-sub-str) [`first`](#first-vec) [`firstword`](#firstword-list) [`for`](#for-var-vector-body) [`foreach`](#foreach-var-list-body) [`if`](#if-cond-then-expr-else-expr) [`join`](#join-list-a-list-b) [`lastword`](#lastword-list) [`not`](#not-a) [`notdir`](#notdir-paths) [`nth`](#nth-index-vec) [`nth-rest`](#nth-rest-n-list) [`or`](#or-exprs) [`patsubst`](#patsubst-pat-repl-list) [`print`](#print-values) [`promote`](#promote-value) [`realpath`](#realpath-paths) [`require`](#require-module-private) [`rest`](#rest-vec) [`rrest`](#rrest-vec) [`set`](#set-name-value-retval) [`shell`](#shell-command) [`sort`](#sort-list) [`subst`](#subst-from-to-from-to-value) [`suffix`](#suffix-paths) [`trace`](#trace-specs) [`tracing`](#tracing-spec-expr) [`untrace`](#untrace-names-retval) [`vector`](#vector-values) [`wildcard`](#wildcard-patterns) [`word`](#word-n-list) [`wordlist`](#wordlist-a-b-list) [`words`](#words-list) |
-| [io](#io-file-io-and-shell-interaction) | [`chmod-file`](#chmod-file-filename-mode) [`clean-path`](#clean-path-path) [`cp-file`](#cp-file-src-dst-make-dst-dir) [`escape-path`](#escape-path-path) [`file-exists?`](#file-exists-filename) [`fprintf`](#fprintf-fd-format-values) [`getline`](#getline-prompt) [`hash-file`](#hash-file-filename) [`hash-files`](#hash-files-filenames) [`hash-output`](#hash-output-cmd) [`ioshell`](#ioshell-cmd) [`mkdir-p`](#mkdir-p-dir) [`quote-sh-arg`](#quote-sh-arg-arg) [`quote-sh-file`](#quote-sh-file-filename) [`read-file`](#read-file-filename) [`read-lines`](#read-lines-filename-start-end) [`resolve-path`](#resolve-path-dir-path) [`save-blob`](#save-blob-dir-name-data) [`shell!`](#shell-cmd) [`unescape-path`](#unescape-path-loc) [`write`](#write-fd-data) [`write-file`](#write-file-file-name-data) |
+| [intrinsics](#intrinsics) | [`..`](#-values) [`._.`](#_-values) [`?`](#-fn-args) [`abspath`](#abspath-paths) [`addprefix`](#addprefix-prefix-list) [`addsuffix`](#addsuffix-suffix-list) [`append-for`](#append-for-target-vector-body) [`apply`](#apply-lambda-vec) [`at-exit`](#at-exit-func-unique) [`basename`](#basename-paths) [`begin`](#begin-exprs) [`case`](#case-value-clauses) [`concat`](#concat-values) [`concat-for`](#concat-for-target-vector-delim-body) [`cond`](#cond-clauses) [`current-env`](#current-env) [`current-file`](#current-file) [`current-file-line`](#current-file-line) [`data`](#data-name-ctors) [`declare`](#declare-forms) [`define`](#define-forms) [`defmacro`](#defmacro-name-argname-body) [`demote`](#demote-value) [`dir`](#dir-paths) [`do-not-trace`](#do-not-trace-names) [`error`](#error-message) [`filter`](#filter-patterns-list) [`filter-out`](#filter-out-patterns-list) [`filtersub`](#filtersub-pat-repl-str) [`findstring`](#findstring-sub-str) [`first`](#first-vec) [`firstword`](#firstword-list) [`for`](#for-target-vector-body) [`foreach`](#foreach-target-list-delim-body) [`if`](#if-cond-then-expr-else-expr) [`join`](#join-list-a-list-b) [`lambda`](#lambda-params-body) [`lastword`](#lastword-list) [`let`](#let-bindings-body) [`let&`](#let-bindings-body) [`let-global`](#let-global-bindings-body) [`not`](#not-a) [`notdir`](#notdir-paths) [`nth`](#nth-index-vec) [`nth-rest`](#nth-rest-n-list) [`or`](#or-exprs) [`patsubst`](#patsubst-pat-repl-list) [`print`](#print-values) [`promote`](#promote-value) [`realpath`](#realpath-paths) [`require`](#require-module-private) [`rest`](#rest-vec) [`rrest`](#rrest-vec) [`set`](#set-name-value-retval) [`shell`](#shell-command) [`sort`](#sort-list) [`subst`](#subst-from-to-from-to-value) [`suffix`](#suffix-paths) [`trace`](#trace-spec) [`tracing`](#tracing-spec-expr) [`untrace`](#untrace-names-retval) [`when`](#when-cond-body) [`wildcard`](#wildcard-patterns) [`word`](#word-n-list) [`wordlist`](#wordlist-a-b-list) [`words`](#words-list) |
+| [io](#io-file-io-and-shell-interaction) | [`chmod-file`](#chmod-file-filename-mode) [`clean-path`](#clean-path-path) [`cp-file`](#cp-file-src-dst-make-dst-dir) [`cp-file-atomic`](#cp-file-atomic-src-dst-make-dst-dir) [`escape-path`](#escape-path-path) [`file-exists?`](#file-exists-filename) [`fprintf`](#fprintf-fd-format-values) [`get-tmp-dir`](#get-tmp-dir-tmpl) [`getline`](#getline-prompt) [`hash-file`](#hash-file-filename) [`hash-files`](#hash-files-filenames) [`hash-output`](#hash-output-cmd-fmt-args) [`io-sprintf`](#io-sprintf-fmt-args) [`mkdir-p`](#mkdir-p-dir) [`mv-file`](#mv-file-from-to) [`path-basename`](#path-basename-path) [`path-dir`](#path-dir-path) [`path-notdir`](#path-notdir-path) [`pipe`](#pipe-stdin-fmt-args) [`quote-sh-arg`](#quote-sh-arg-arg) [`quote-sh-file`](#quote-sh-file-filename) [`read-file`](#read-file-filename) [`read-lines`](#read-lines-filename-start-end) [`resolve-path`](#resolve-path-dir-path) [`save-blob`](#save-blob-dir-name-data) [`shell-lines`](#shell-lines-cmd-fmt-args) [`shellf`](#shellf-cmd-fmt-args) [`unescape-path`](#unescape-path-loc) [`vfprintf`](#vfprintf-fd-format-values) [`write`](#write-fd-data) [`write-file`](#write-file-filename-data) [`write-file-atomic`](#write-file-atomic-file-name-data) |
 | [math](#math-numeric-operations) | [`!=`](#-x-y) [`*`](#-x-y) [`*~`](#-x-y-p) [`+`](#-x-y) [`-`](#--x-y) [`/`](#-x-y-p) [`//`](#-x-y) [`0-`](#0--x) [`<`](#-x-y) [`<=`](#-x-y) [`=`](#-x-y) [`>`](#-x-y) [`>=`](#-x-y) [`^`](#-x-y) [`abs`](#abs-x) [`atan`](#atan-m-p) [`atan2`](#atan2-y-x-p) [`ceil`](#ceil-x) [`cos`](#cos-x-p) [`exp`](#exp-x-p) [`floor`](#floor-x) [`format-fixed`](#format-fixed-x-min-width-decimals) [`frexp10`](#frexp10-x) [`get-pi`](#get-pi-p) [`log`](#log-x-b-p) [`max`](#max-x-y) [`min`](#min-x-y) [`mod`](#mod-x-y) [`num-lex`](#num-lex-n) [`num-sort`](#num-sort-v) [`pow`](#pow-x-y-p) [`range`](#range-x-y) [`round`](#round-x-p-dir) [`sin`](#sin-x-p) [`sum`](#sum-args) [`trunc`](#trunc-x) |
 | [memo](#memo-persistent-memoization) | [`memo-apply`](#memo-apply-fname-args) [`memo-blob-call`](#memo-blob-call-fname-args) [`memo-call`](#memo-call-fname-args) [`memo-chmod-file`](#memo-chmod-file-filename-mode) [`memo-drop`](#memo-drop) [`memo-hash-file`](#memo-hash-file-filename) [`memo-io`](#memo-io-fname-args) [`memo-on`](#memo-on-dbfile-expr) [`memo-read-file`](#memo-read-file-filename) [`memo-write-file`](#memo-write-file-filename-data) |
 | [peg](#peg-peg-parser-generator) | [`gen-lex`](#gen-lex-tokens) [`lex`](#lex-text-tokens) [`peg-*`](#peg--pf) [`peg-+`](#peg--pf) [`peg-?`](#peg--pf) [`peg-and`](#peg-and-pfs) [`peg-at`](#peg-at-pf) [`peg-c`](#peg-c-name-pf) [`peg-empty`](#peg-empty-caps) [`peg-not`](#peg-not-pf) [`peg-or`](#peg-or-pfs) [`peg-p`](#peg-p-in-out-caps) [`un-lex`](#un-lex-subj) |
+| [repl](#repl-interactive-mode-for-scam) | [`repl`](#repl-build-dir-prompts) [`repl-ep`](#repl-ep-text-build-dir-is-quiet) |
 | [string](#string-string-manipulation) | [`bytes-from-bytecodes`](#bytes-from-bytecodes-codes) [`gen-polysub`](#gen-polysub-froms-tos-input) [`string-from-bytecodes`](#string-from-bytecodes-codes) [`string-len`](#string-len-s) [`string-lower`](#string-lower-str) [`string-repeat`](#string-repeat-str-num) [`string-slice`](#string-slice-first-last-str) [`string-to-bytecodes`](#string-to-bytecodes-str) [`string-to-bytes`](#string-to-bytes-s) [`string-to-chars`](#string-to-chars-s) [`string-upper`](#string-upper-str) |
 | [utf8](#utf8-utf-8-coding) | [`utf8-decode`](#utf8-decode-bytes) [`utf8-encode`](#utf8-encode-codes) |
+
+
+
+# compile: SCAM Compilation
+
+The following diagram summarizes the stages of compiling a SCAM
+expression:
+
+                 pos                 env
+                  |                   |
+                  v                   v
+     text    +---------+   form   +------+    IL    +------+   exe
+    -------->|  parse  |--------->|  c0  |--------->|  c1  |-------->
+             +---------+          +------+          +------+
+                  |                   |                 |    errors
+                  v                   v                 +----------->
+                 pos                 env
+
+Each expression begins at a position "pos" (a numeric index into the
+sequence of tokens in the subject text).  Parsing emits a "form" (an AST
+node) and a position at which to look for subsequent expressions.
+
+The compiler front end (c0) operates on a form and an environment (a set
+of symbol bindings), and emits an IL node and a new environment, since
+expressions (e.g. `declare` and `define`) can alter the environment for
+subsequent expressions.
+
+The compiler back end (c1) emits executable code (Make source) and a
+(hopefully empty) vector of errors.  The form and IL data structures can
+convey errors as well as successful results, so the previous stages do
+not need a separate error output value.
+
+## Build Directory
+
+During compilation, intermediate files are created under a directory
+called the "build directory".  Subsequent compilations with the same
+object directory can proceed faster by reusing these results.  This
+defaults to ".scam/" if NIL is passed.
+
+No two compilations should occur at the same time (e.g. in different
+instances of SCAM) using the same directory.
+
+## Exports
+
+##### `(build-program SRC-FILE EXE-FILE ?BUILD-DIR ?IS-QUIET)`
+
+Compile a SCAM program.
+
+SRC-FILE = name of the SCAM source file\
+EXE-FILE = name of an executable file to create.\
+ARGV = a vector to pass to the program's `main` function\
+BUILD-DIR = nil, or the [object directory](#object-directory)\
+IS-QUIET = non-nil to suppress progress messages.
+
+On success, return `nil`.\
+On failure, display message and return 1.
+
+
+##### `(compile-text TEXT FILE ?ENV-IN ?BUILD-DIR ?IS-QUIET)`
+
+Compile SCAM source code to a function.
+
+TEXT = a string of SCAM source code containing a sequence of one or more
+    expressions.\
+FILE = the file from which the source was obtained; this will be
+    available to the compiled code via `(current-file)`.\
+ENV-IN = the environment (symbol definitions) visible to TEXT
+   at the outset.  If nil, SCAM's default environment will be used.
+   Otherwise, it must be a previously returned ENV-OUT value.\
+BUILD-DIR = nil, or the [object directory](#object-directory).\
+IS-QUIET = non-nil to suppress progress messages.
+
+Result = `{ code: CODE, errors: ERRORS, env: ENV-OUT, requires: MODS }`
+
+On success, the `code` member of the result contains a SCAM function that
+will execute the compiled code, returning the value of the last
+expression.
+
+Example:
+
+    > (define result
+    +   (compile-text "(print 123) (require \"math\") (+ 1 2)" "--"))
+    > (define f (dict-get "code" result))
+    > (define out (f))
+    123
+    > out
+    3
+
+
+##### `(run-program SRC-FILE ARGV ?BUILD-DIR ?IS-QUIET)`
+
+Compile and execute a SCAM program.
+
+SRC-FILE = name of the SCAM source file\
+ARGV = a vector to pass to the program's `main` function\
+BUILD-DIR = nil, or the [object directory](#object-directory)\
+IS-QUIET = non-nil to suppress progress messages.
+
+On success, return `nil`.\
+On failure, display message and return 1.
 
 
 # core: General-Purpose Functions
@@ -44,7 +146,7 @@ Return the first vector in VECV whose first item is KEY.
 
 ##### `(assoc-initial PREFIX VEC)`
 
-Return items that match PREFIX or begin with `(concat PREFIX " ")`.
+Return items that match PREFIX or begin with `(.. PREFIX " ")`.
 
 
 ##### `(assoc-vec KEY-VEC VECV)`
@@ -97,7 +199,7 @@ Return the value bound to KEY.  If more than one pair matches KEY, only
 the first is returned.  If no pair is found, DEFAULT is returned.
 
 
-##### `(dict-key PAIR)`
+##### `(dict-key {=KEY: _})`
 
 Return the key portion of PAIR.
 
@@ -117,7 +219,7 @@ Remove all pairs whose key portion is KEY from DICT.
 Bind KEY to VALUE in dictionary DICT, removing other entries for KEY.
 
 
-##### `(dict-value PAIR)`
+##### `(dict-value {=_: VALUE})`
 
 Return the value portion of PAIR.
 
@@ -150,7 +252,7 @@ FILE-LINE = "file:line:" prefix for the diagnostic message.
 
 ##### `(fexpect A B)`
 
-Like `expect, but only the formatted versions of A and B are compared.
+Like `expect`, but only the formatted versions of A and B are compared.
 This accommodates only minor differences in the concrete layout that do
 not affect the meaning in some contexts.  For example, a record ending in
 a `&list` member (that is empty) will have a trailing space when
@@ -218,10 +320,28 @@ Memoize a function that accepts up to three arguments.
 Return S if S is a valid numeric literal in SCAM, nil otherwise.
 
 
+##### `(permute LST ZZ ?PREFIX)`
+
+Return a list of all possible concatenations words from LST.
+
+ZZ = a string of 0's that determine how long wach concatenation is.
+     "" => 1 word, "0" => 2 word, "00" => 3 words, ...
+PREFIX = a string to be prepended to each resulting concatenation.
+
+The list is ordered by the indexes into LST.  Words that appear earlier
+in the concatenations are more significant.
+
+
 ##### `(printf FMT ...VALUES)`
 
 Display a message to stdout, followed by a newline.  See `vsprintf` for
 handling of FMT and VALUES.
+
+
+##### `(repeat-words V N)`
+
+Return a list of N words, constructed by appending copies of V.
+N must be an integer; if less than one, the result is empty.
 
 
 ##### `(reverse LIST)`
@@ -232,6 +352,9 @@ Reverse word list (or vector) LIST.
 ##### `(see SUBSTR STR)`
 
 Return 1 if SUBSTR appears within STR.  Print a diagnostic otherwise.
+This is intended for use in unit tests, as follows:
+
+    (expect 1 (see SUBSTR STR))
 
 
 ##### `(select-vec FN LIST)`
@@ -284,6 +407,20 @@ The `sort` function returns unique items and is much faster, but it does
 not preserve ordering.
 
 
+##### `(urange MIN MAX)`
+
+Return a list of integers in the range MIN..MAX (inclusive).
+
+MIN is a positive integer.
+MAXi is a non-negative integer.
+
+MIN and MAX must be in "plain" decimal format (no scientific notation or
+decimals).
+
+Memory requirements and execution time are proportional to MAX, not
+(MAX - MIN).
+
+
 ##### `(vec-intersect A B)`
 
 Return entries in vector A that also appear in vector B.
@@ -311,6 +448,17 @@ The following escape sequences are supported:
 -  `%q` -> `(format value)`
 
 
+##### `(vsprintfx FMT VALUES CODES FMT-FN)`
+
+Like `vsprintf`, but without any built-in notion of format
+codes.  Instead it accepts two additional arguments:
+
+CODES = list of supported format codes, e.g. "s q" for "%s" and "%q".\
+FMT-FN = a function that formats a value, given a format code.  It is
+   called as (FMT-FN CODE VALUE-VEC) where VALUE-VEC is a demoted value,
+   and returns a vector of strings (which will be concatenated).
+
+
 ##### `(while PRED DO INITIAL)`
 
 Recursively apply FN to VALUE until `(PRED result)` is nil, then return
@@ -326,6 +474,8 @@ consists only of decimal digits and is non-zero.
 ##### `(xor A B)`
 
 Return the parameter that is not nil (unless both or none are nil).
+
+
 # getopts: Command Line Options Parser
 
 ## Exports
@@ -334,44 +484,45 @@ Return the parameter that is not nil (unless both or none are nil).
 
 Parse command line options.
 
-ARGV = arguments vector\
+ARGV = argument vector, as supplied to `main`\
 OPTS = a string of option specifiers\
-Result = a dictionary describing options, non-option arguments, and errors.
+Result = a dictionary
 
-Any non-option command-line arguments will appear in the result in a
-vector bound to the key `"*"`.  In other words, `(dict-get "*" RESULT)`
-yields all of the non-option arguments.
+The resulting dictionary maps each option name to a *vector* of values
+supplied for that option.  Options can appear zero or more times.  If not
+seen, the option name will not appear as a key in the dictionary.
 
-Option specifiers in OPTS may begin with `"-"` or `"--"`.  Leading dashes
-are not included in the dictionary keys.  Option names may not contain
-`%`, `!`, `*`, or whitespace.
+The key `"*"` holds elements in ARGV that were not options or option
+arguments.  In other words, `(dict-get "*" RESULT)` yields all of the
+non-option arguments.
 
-Options can appear multiple more times.  If not seen, the option name
-will not appear in the result.  Otherwise, it will be bound to a vector
-that contains one value per occurrence:
-
- - If an option specifier ends in `"="`, this indicates that the option
-   consumes an argument.  Its values will be the consumed arguments.
-
- - If an option does not end in `"="`, its values will all be `1`.
-
-If `--` is seen in ARGV, all elements following `--` are treated as
-non-option arguments.  Otherwise, options can appear in any order, before
-and after non-option arguments.
-
-If errors are encountered, a `"!"` entry in the dictionary will exist,
-containing `GetoptsError` records.
+If errors were encountered, the key `"!"` holds a vector of
+`GetoptsError` records:
 
  - `(MissingArg OPT)` : Option specifier OPT takes an argument but was found
    in last element of argv.
  - `(BadOption ARG)` : Argument ARG began with "-" but did not match any
    option specifiers.
 
+Words in OPTS begin with `-` or `--` and may end with `=`.  Leading
+dashes and the trailing `=` are not included in the dictionary keys.
+Option names may not contain `%`, `!`, `*`, or whitespace.
+
+If an option specifier ends in `"="`, the value will be the next argument
+in ARGV (which will be consumed).  Otherwise, the value `1` is supplied
+for each occurrence of the option.
+
+If `--` is seen in ARGV, all elements following `--` are treated as
+non-option arguments.  Otherwise, options can appear in any order, before
+and after non-option arguments.
+
 Example:
 
-    (getopts ["a" "-f" "--g" "x" "b"]      ;; command line as in `argv`
-             "-f --g= -h")                 ;; option description
-    {f: 1, g: "x", *: ["a" "b"] }          ;; result
+    > (getopts ["a" "-f" "-f" "--g" "x" "b c" "--" "-f"]
+    +          "-f --g= -h")
+    {*: ["a" "b c" "-f"], f: [1 1], g: "x"}
+
+
 # Intrinsics
 
 There is not an "intrinsics" module; all these exports are defined by the
@@ -389,6 +540,17 @@ provided by the language itself.  Special forms are not functions, so
 they do not have values and cannot be passed to other functions.
 
 ## Exports
+
+##### `(.. ...VALUES)`
+
+This special form concatenates all of its arguments.
+
+
+##### `(._. ...VALUES)`
+
+This special form concatenates all of its arguments, separating them with
+a single space character.
+
 
 ##### `(? FN ...ARGS)`
 
@@ -417,12 +579,12 @@ The file names do not need to refer to an existing file or directory.
 Add PREFIX to the start of each word in LIST.
 
 
-##### `(addsuffix SUFFIX PATHS)`
+##### `(addsuffix SUFFIX LIST)`
 
-Add SUFFIX to the end of each word in PATHS.
+Add SUFFIX to the end of each word in LIST.
 
 
-##### `(append-for VAR VECTOR BODY)`
+##### `(append-for (TARGET VECTOR) ...BODY)`
 
 `append-for` is similar to `for` but it appends together all of the (vector)
 values of BODY.  This is functionally similar to what is called `concat-map`
@@ -446,15 +608,20 @@ Example:
     "c"
 
 
-##### `(at-exit FUNC)`
+##### `(at-exit FUNC ?UNIQUE)`
 
 Add FUNC to a list of functions that will be run after `main` exits.
 The earliest-registered functions will be called last.
+
+If UNIQUE is non-nil and FUNC has already been registered, it will not be
+added again.
 
 
 ##### `(basename PATHS)`
 
 Remove the file extension from each word in PATHS.
+
+See also: `path-basename`
 
 
 ##### `(begin ...EXPRS)`
@@ -482,14 +649,17 @@ details.
 
 ##### `(concat ...VALUES)`
 
-This special form concatenates all of its arguments.
+This special form concatenates all of its arguments.  This is
+equivalent to `..`.
 
 
-##### `(concat-for VAR VECTOR DELIM BODY)`
+##### `(concat-for (TARGET VECTOR ?DELIM) ...BODY)`
 
 `concat-for` is similar to `for` but it concatenates the values of BODY.
+If `DELIM` is not present in the source, then it defaults to a single
+space.
 
-    > (concat-for x [1 2 3] ";" (wordlist 1 x "a b c"))
+    > (concat-for (x [1 2 3] ";") (wordlist 1 x "a b c"))
     "a;a b;a b c"
 
 
@@ -515,10 +685,21 @@ environment at the point where it is invoked.  (See `gen.scm` for details of
 this structure.)
 
 
+##### `(current-file)`
+
+This special form evaluates to the current file name.  Ordinarily, this
+will refer to the location in the source file where the `(current-file)`
+call appears, but when it appears within a macro it refers to the
+location at which the macro was expanded.
+
+
 ##### `(current-file-line)`
 
-This special form evaluates to the file name and line number of where it was
-invoked, in this format:  `FILENAME:LINE`
+This special form evaluates to `FILENAME:LINE:COL` describing the
+"current" position in the program.  Ordinarily, this will refer to the
+location in the source file where the `(current-file-line)` call appears,
+but when it appears within a macro it refers to the location at which the
+macro was expanded.
 
 
 ##### `(data NAME ...CTORS)`
@@ -537,31 +718,40 @@ Declare a function, variable, or macro.
 This special form takes two forms:
 
     (declare NAME FLAG...)             ; global data variable
-    (declare (NAME ARG...) FLAG...)    ; global function variable
+    (declare (NAME PARAM...) FLAG...)    ; global function variable
 
 The `declare` special form declares a global variable without assigning
 a value.  This is usually used to access non-SCAM functions, or when
 mutually recursive functions are defined.
 
 
-##### `(declare ...FORMS)`
+##### `(define ...FORMS)`
 
 Declare and define a function, variable, or macro.
 
 This special form takes several forms:
 
-    (declare NAME FLAG... VALUE)            ; global data variable
-    (declare (NAME ARG...) FLAG... BODY)    ; global function variable
-    (declare `NAME EXPR)                    ; symbol macro
-    (declare `(NAME ARG...) FLAG... BODY)   ; compound macro
+    (define NAME FLAG... VALUE)              ; global data variable
+    (define (NAME PARAM...) FLAG... BODY)    ; global function variable
+    (define `NAME EXPR)                      ; symbol macro
+    (define `(NAME PARAM...) FLAG... BODY)   ; compound macro
 
 The `define` special form adds a name to the environment and associates
 it with a definition.  The defined name will be visible to subsequent
 expressions in the same block, and the definition supersedes any
 previous definitions associated with the same name.
 
+See `lambda` for descriptions of the `PARAM` syntax.
+
 The `&public` flag may be included in `FLAG...`.  This indicates that the
-symbol should be visible outside of the file in which it is declared.
+symbol should be visible outside of the file in which it is defined.
+
+
+##### `(defmacro (NAME ARGNAME) BODY)`
+
+Declare an *executable macro*.  An executable macro is a function that
+transforms syntax.  It takes one argument, a form, and returns a
+different form.
 
 
 ##### `(demote VALUE)`
@@ -572,11 +762,11 @@ list.  It is used internally to construct vectors.
 
 ##### `(dir PATHS)`
 
-Get the directory of each file in PATHS.
+Get the directory of each file path in word list PATHS.
 
     (dir "a/b c")  -->  "a/ ./"
 
-See also `notdir`.
+See also: `notdir`, `path-dir`.
 
 
 ##### `(do-not-trace NAMES)`
@@ -624,26 +814,37 @@ Get the first element of VEC.
 Get the first word in LIST.
 
 
-##### `(for VAR VECTOR BODY)`
+##### `(for (TARGET VECTOR) ...BODY)`
 
-`for` iterates over items in a vector, evaluating BODY for with VAR bound to
-an item, constructing a new vector with the results of BODY. Example:
+`for` iterates over items in a vector, constructing a new vector.
 
-    > (for x [[1 2] [3 4]]
-    +     (reverse x))
+`BODY` is evaluated in the scope of the variables named in TARGET, which
+can be either a symbol or a [destructuring target
+](reference.md#destructuring).
+
+Example:
+
+    > (for (x [[1 2] [3 4]])
+    +    (reverse x))
     [[2 1] [4 3]]
 
 
-##### `(foreach VAR LIST BODY)`
+##### `(foreach (TARGET LIST ?DELIM) ...BODY)`
 
 The `foreach` special form iterates over a list, evaluates BODY (a sequence
 of expressions) once for each word, and constructs a new word list from the
 results of each evaluation.
 
-Each word is bound to the name `VAR` while `BODY` is evaluated.
+`BODY` is evaluated in the scope of variables named in TARGET, which can
+be either a symbol or a [destructuring
+target](reference.md#destructuring).
 
-    > (foreach x "1 2 3" (1+ x))
+    > (foreach (x "1 2 3") (1+ x))
     "2 3 4"
+
+`DELIM` specifies the separator between list elements.  This defaults to
+a single space when `DELIM` is absent.  When it is present and evaluates
+to `nil`, all element results are concatenated.
 
 
 ##### `(if COND THEN-EXPR [ELSE-EXPR])`
@@ -659,9 +860,90 @@ it is evaluated and used, and if not `nil` is used.
 Concatenate the respective words in LIST-A and LIST-B.
 
 
+##### `(lambda (...PARAMS) BODY)`
+
+A `lambda` expression evaluates to a function value.
+
+`...PARAMS` is zero or more *targets* that name the formal arguments,
+followed by zero or more *optional* parameters and then perhaps one
+*rest* parameter.
+
+A target is a symbol (not beginning with `...` or `?`) or a
+[destructuring target](reference.md#destructuring).
+
+An optional parameter is a symbol that begins with `?`.  Optional
+parameters may be omitted by callers.
+
+A rest parameter is a symbol that begins with `...`.  Rest parameters
+capture, as a vector, all subsequent arguments passed to the function.
+Callers may omit any of the arguments captured by a rest parameter.
+
+`BODY` is a block of one or more expressions (see [`begin`](#begin) )
+that will be executed when the function is called. The initial environment
+of `BODY` contains bindings for the arguments names to the values passed
+to the function.
+
+
 ##### `(lastword LIST)`
 
 Get the last word in LIST.
+
+
+##### `(let (...BINDINGS) ...BODY)`
+
+This special form assigns names to values.  BINDINGS is a sequence of
+`(TARGET VALUE)` pairs.  Each TARGET can be either a symbol or a
+[destructuring target](reference.md#destructuring).
+
+BODY (a sequence of expressions) is evaluated in an environment in which
+every name in each TARGET is bound to its corresponding value.  The
+value of the last expression in BODY is returned.
+
+`let` is implemented in terms of `lambda`, and is equivalent to:
+
+    ((lambda (NAME1 NAME2 ...) BODY) (VALUE1 VALUE2 ...))
+
+
+##### `(let& (...BINDINGS) ...BODY)`
+
+Declare symbol macros.
+
+`let&` is a "lazy" let.  It binds the names to symbol macros instead of
+local variables.  It also differs from `let` in that each expression is
+evaluated in the context of the previous bindings -- more like Scheme's
+`let*`.  The following expression:
+
+    (let& ((NAME EXPR))
+      BODY)
+
+... is equivalent to the following:
+
+    (begin
+      (declare `NAME EXPR)
+      BODY)
+
+Since `let&` constructs symbol macros, each bound expression is not
+always evaluated exactly once, as with `let`.  Instead, each expression
+is evaluated once each time its associated name is evaluated within
+`BODY` -- perhaps zero times, perhaps many more.
+
+The `let&` form generally has lower overhead than `let`, since it does
+not involve an anonymous function call (as does `let`).
+
+
+##### `(let-global (...BINDINGS) ...BODY)`
+
+This form modifies the value of some number of global variables *during
+the execution of BODY*. Afterwards, the original values are restored.
+Note that, unlike `let` or `let&`, the variables must already be in
+scope.
+
+BINDINGS is a sequence of `(TARGET VALUE)` pairs.  Each TARGET can be
+either a symbol or a [destructuring target](reference.md#destructuring).
+Each name mentioned in TARGET must identify a previously declared global
+variable.
+
+This expression evaluates to the value of the last expression in BODY.
 
 
 ##### `(not A)`
@@ -671,11 +953,11 @@ Logically invert A.  If A is `nil`, return 1.  Otherwise, return `nil`.
 
 ##### `(notdir PATHS)`
 
-Return the filename portion of each path in PATHS.
+Return the filename portion of each path in word list PATHS.
 
     (notdir "a/b c")  -->  "b c"
 
-See also `dir`.
+See also: `dir`, `path-notdir`.
 
 
 ##### `(nth INDEX VEC)`
@@ -722,42 +1004,41 @@ for details.
 ##### `(require MODULE &PRIVATE?)`
 
 The `require` special form provides access to functionality defined in
-other modules.  It performs two actions:
+other modules.  When evaluated, it will load and execute the module
+(unless it has already been required elsewhere in the program.)  Symbols
+that have been declared as `&public` in the top-level of the required
+module are "imported" into the current environment, making those symbols
+visible to expressions that follow the `require` form, up to the end of
+the enclosing block.
 
- 1. It ensures that the module has been executed.  If the module has
-    already been loaded, it does nothing.  Otherwise, it executes the
-    module.  (This occurs at run time.)
-
- 2. It imports symbols exported by the module.  Symbols declared
-    `&public` within the module are imported into the environment of the
-    caller of `require`.  (This occurs at compile time.)
-
-The `&private` flag is intended for use by unit test modules.  When present,
-private symbols will be imported in addition to `&public` ones, and the
-qualification step will not be required.  (See "qualification", below.)
+`(require MODULE &private)` is intended for use by unit test modules.
+This will import all symbols defined in the top-level of the required
+module (not just the `&public` ones).  Additionally, the qualification
+step will not be required.  (See "qualification", below.)
 
 When `MODULE` is one of the [standard library names](#libraries), the
 standard library will be supplied by the compiler.  Otherwise, `MODULE`
-must end in `".scm"` and names SCAM source file.  If it is a relative
+must end in `.scm` and identify as SCAM source file.  If it is a relative
 path, it is treated as relative to the directory containing the requiring
 file.  If no such file exists, the directories listed in `SCAM_LIBPATH`
 (colon-delimited) are tried, in order, until a matching file is found.
 
 When `MODULE` identifies a source file, that source file will be compiled
-to determine its exports before compilation can continue.  In turn,
-modules required by `MODULE` will also have to be compiled in order to
-build `MODULE`, and so on.  Compilation results are
+to determine its exports before compilation of the requiring module can
+continue.  In turn, modules required by `MODULE` will also have to be
+compiled in order to build `MODULE`, and so on.  Compilation results are
 [cached](reference.md#cached-results) to avoid exponential build times.
 
-**Qualification:** Each module can be accompanied by a qualification test: a
-module with the same name except for an added `-q` before the extension.
-For example, `foo-q.scm` is the qualification test for `foo.scm`.  When a
-module is required, its qualification test (if present) will be built and
-executed before compilation of the requiring module continues.  If the
-qualification test terminates with a non-zero exit code, it is considered a
-test failure and compilation stops.  (Note that qualification test files
-must use the `&private` flag when requiring the module they test in order to
-avoid a dependency loop.)
+**Qualification:** Each module source file may be accompanied by a
+qualification test: a source file whose name is determined by adding `-q`
+prior to the `.scm` extension.  For example, `foo-q.scm` is the
+qualification test for `foo.scm`.  When a module is required, its
+qualification test (if present) will be built and executed before
+compilation of the requiring module continues.  If the qualification test
+terminates with a non-zero exit code, it is considered a test failure and
+compilation stops.  (Note that qualification test files must use the
+`&private` flag when requiring the module they test in order to avoid a
+dependency loop.)
 
 
 ##### `(rest VEC)`
@@ -770,7 +1051,7 @@ Remove the first element from vector (or list) VEC.
 Remove the first two elements from vector (or list) VEC.
 
 
-##### `(set NAME VALUE RETVAL)`
+##### `(set NAME VALUE ?RETVAL)`
 
 The `set` special form assigns a value to a previously declared global
 variable.
@@ -810,7 +1091,7 @@ given VALUE.  For example:
 Return the file extensions of all file names in PATHS.
 
 
-##### `(trace SPECS)`
+##### `(trace SPEC)`
 
 Instrument functions for tracing as described by SPEC.
 
@@ -868,6 +1149,8 @@ operations, repetition of expressions should not alter the behavior of
 the program.  This can be used to identify and quantify hotspots in a
 program.
 
+See the [reference manual](reference.md#debugging) for examples.
+
 
 ##### `(untrace NAMES ?RETVAL)`
 
@@ -875,14 +1158,19 @@ Remove instrumentation from functions listed in NAMES, or functions
 matched by patterns in NAMES.
 
 
-##### `(vector ...VALUES)`
+##### `(when COND ...BODY)`
 
-Construct a vector containing each argument.
+This special form is equivalent to `(if COND (begin ...BODY))`.
 
 
 ##### `(wildcard PATTERNS)`
 
-Get files that match PATTERNS.  Patterns is a list of glob expressions.
+Get files that match PATTERNS.  Patterns are delimited by whitespace
+characters, except that a whitespace character preceded by a backslash
+character will be treated as literal.
+
+All matches are returned as a word list; whitespace characters within a
+matching file name are *not* escaped.  (Good luck with that.)
 
 
 ##### `(word N LIST)`
@@ -904,6 +1192,8 @@ terminated with an error message.
 ##### `(words LIST)`
 
 Return the number of words in LIST.
+
+
 # io: File I/O and Shell Interaction
 
 ## Exports
@@ -923,6 +1213,17 @@ from an absolute or relative path.  PATH may include whitespace.
 ##### `(cp-file SRC DST ?MAKE-DST-DIR)`
 
 Copy file SRC to DST.  Return nil on success, description on error.
+
+
+##### `(cp-file-atomic SRC DST ?MAKE-DST-DIR)`
+
+Copy file SRC to DST.  Return nil on success, description on error.
+
+Operation is atomic on POSIX file systems -- that is, if DST is opened
+and read by another process, it will either see the previous contents of
+DST or an entire copy of SRC (never a partial copy).  A temporary file
+(in the same directory as DST, and with a name based on DST) will be used
+for this purpose.
 
 
 ##### `(escape-path PATH)`
@@ -945,8 +1246,19 @@ reflect files created/deleted when the program is running.
 
 ##### `(fprintf FD FORMAT ...VALUES)`
 
-Format text and write to a file.  See `vsprintf` for handling of FORMAT
-and VALUES.  Unlike `printf`, no trailing newline is appended.
+Format text and write to a file descriptor, 0 through 8.  See `vsprintf`
+for handling of FORMAT and VALUES.  Unlike `printf`, no trailing newline
+is appended.
+
+
+##### `(get-tmp-dir ?TMPL)`
+
+Obtain a directory underneath the build directory, or, if not running
+in the context of a build (as "-q.scm" files do) then return ".scam/".
+If TMPL is given, a new directory is created under the build directory
+and returned, using TMPL as a template for the `mktemp` command.
+
+Result ends in "/".
 
 
 ##### `(getline PROMPT)`
@@ -970,20 +1282,64 @@ algorithm to use depends on what is available in PATH; it is guaranteed
 to remain the same for the duration of the program's execution.
 
 
-##### `(hash-output CMD)`
+##### `(hash-output CMD-FMT ...ARGS)`
 
-Execute shell command CMD, hash what it writes to `stdout`, and return the
+Execute shell command, hash what it writes to `stdout`, and return the
 hash.
 
+CMD-FMT = format string as per `io-vsprintf`
+ARGS = arguments references by CMD-FMT
 
-##### `(ioshell CMD)`
 
-Perform a shell command CMD, logging results if `S` appears in SCAM_DEBUG.
+##### `(io-sprintf FMT ...ARGS)`
+
+[See `io-vsprintf`.]
 
 
 ##### `(mkdir-p DIR)`
 
 Create directory DIR and parent directories, if necessary.
+
+
+##### `(mv-file FROM TO)`
+
+Move file FROM to TO.
+
+On success, return nil.  On failure, return an error description.
+
+
+##### `(path-basename PATH)`
+
+Remove the extension from NAME.  This is like the Make builtin `basename`
+except that this properly handles a name with whitespace and does not
+operate on a list of words.
+
+
+##### `(path-dir PATH)`
+
+Return the directory portion of a path.  This is like the Make builtin
+`dir` except that this properly handles a path with whitespace and does
+not operate on a list of words.
+
+
+##### `(path-notdir PATH)`
+
+Return the file portion of a path.  This is like the Make builtin
+`notdir` except that this properly handles a path with whitespace and
+does not operate on a list of words.
+
+
+##### `(pipe STDIN FMT ...ARGS)`
+
+Execute a command, providing STDIN as input, capturing `stdout` and `stderr`.
+Return the exit status and output.  The output is returned unmolested,
+except that NUL bytes may result in truncated lines.
+
+STDIN = bytes to provide as input to the command.  If nil, /dev/null is
+   supplied.  The size of STDIN may be limited by the maximum command size.
+FMT ...ARGS = arguments passed to `io-vsprintf` to construct the command.
+
+Result = [STATUS STDOUT STDERR]
 
 
 ##### `(quote-sh-arg ARG)`
@@ -1021,20 +1377,33 @@ Write DATA to a file whose name is a hash of DATA, in directory DIR-NAME.
 Return the path to the new file.
 
 
-##### `(shell! CMD)`
+##### `(shell-lines CMD-FMT ...ARGS)`
 
-Execute command CMD, returning data written to `stdout`.
+Execute command, returning data written to `stdout` as a vector of
+lines, split at "\n" characters.  To obtain the original output as one
+string, do the following:
 
-Unlike `shell`, which trims trailing newlines and then converts newlines
-to spaces, `shell!` preserves newline and space characters.  It does
-guarantee complete fidelity, however: NUL characters will not be
-preserved, and the last line of output will be terminated with a newline
-(whether it was present or not in the command output).
+    (concat-vec RESULT "\n")
+
+CMD-FMT = format string as per `io-vsprintf`
+ARGS = arguments references by CMD-FMT
+
+Note: Zero bytes in the output may result in truncated lines.
+
+
+##### `(shellf CMD-FMT ...ARGS)`
+
+Format a command using `io-vsprintf` and execute it using `shell`.
 
 
 ##### `(unescape-path LOC)`
 
 Undo `escape-path`.
+
+
+##### `(vfprintf FD FORMAT VALUES)`
+
+See `fprintf`
 
 
 ##### `(write FD DATA)`
@@ -1044,11 +1413,22 @@ Write DATA to a file descriptor FD, 0 through 8.
 Result is `nil` on success; non-nil if the file descriptor is bad.
 
 
-##### `(write-file FILE-NAME DATA)`
+##### `(write-file FILENAME DATA)`
 
 Write DATA to file FILENAME.
 
-On success, nil is returned.  Otherwise, an error description is returned.
+On success, return nil.  On failure, return an error description.
+
+
+##### `(write-file-atomic FILE-NAME DATA)`
+
+Write DATA to file FILENAME.  The data is first written to a temporary
+file which is then renamed to FILENAME, so that another process opening
+the file will see either the old contents or (all of) the new contents.
+
+On success, return nil.  On failure, return an error description.
+
+
 # math: Numeric Operations
 
 The `math` library implements operations on numbers.
@@ -1336,6 +1716,8 @@ numbers, or a vector of vectors of numbers, and so on.
 ##### `(trunc X)`
 
 Return the integer portion of X (rounding towards zero).
+
+
 # memo: Persistent Memoization
 
 The `memo` module implements persistent memoization, which caches the
@@ -1458,6 +1840,8 @@ Read data from FILENAME, logging the IO transaction for playback.
 Write DATA to FILENAME, logging the IO transaction for playback.  The
 limit on the size of DATA is system-specific, but at least 60KB for
 any data and 100KB for text files.
+
+
 # peg: PEG Parser Generator
 
 The peg module exports *generators* that create parsing functions.
@@ -1599,6 +1983,38 @@ Examples:
 ##### `(un-lex SUBJ)`
 
 Recover original text from a string of symbols.
+
+
+# repl: Interactive mode for SCAM
+
+REPL mode reads lines of text from `stdin`, evaluating expressions and
+displaying results and errors.  Typing `:q<RETURN>` or `Ctrl-D` will
+exit REPL mode.  Typing `?<RETURN>` will show a command reference.
+
+## Exports
+
+##### `(repl ?BUILD-DIR ?PROMPTS)`
+
+Enter REPL mode, and return to caller when the user exits with `:q` or
+`Ctrl-D`.
+
+BUILD-DIR = [build directory](#build-directory); `nil` for default.\
+PROMPTS = [P1 P2]; P1 is shown when awaiting an expression; P2 is
+  shown when awaiting completion of an expression.  If `nil`, default
+  values will be used.
+
+
+##### `(repl-ep TEXT ?BUILD-DIR ?IS-QUIET)`
+
+Evaluate TEXT and print results and errors as REPL mode does.
+
+TEXT = SCAM source text containing zero or more expressions.\
+BUILD-DIR = [build directory](#build-directory); `nil` for default.\
+IS-QUIET = When non-nil, suppresses compilation progress messaged.\
+
+Result = non-nil on error.
+
+
 # string: String Manipulation
 
 The `string` library provides some common string manipulation functions
@@ -1688,6 +2104,8 @@ boundaries.
 ##### `(string-upper STR)`
 
 Convert letters to upper case.  Only ASCII letters are supported.
+
+
 # utf8: UTF-8 Coding
 
 ## Exports

@@ -25,86 +25,41 @@
 ;; handled specially in file syntax, but in most cases the code is first
 ;; compiled to function syntax and then wrapped and/or transformed.
 ;;
-;; Function syntax consists of text that, when expanded in Make, will expand
-;; to the *value* described by the corresponding IL node.  For example, the
-;; IL node (IString "$") compiles to "$`", which, when evaluated by Make --
-;; as in, say "$(info $`)" -- will yield "$".  So in a sense there is an
-;; "extra" level of escaping in all function syntax, and no literal "$"
-;; will appear un-escaped.  When "$" is escaped, we use "$`", ensuring that
-;; each "$" will be followed only by a restricted set of characters.  We
-;; assign special meaning to a couple of character sequences that do not
-;; appear in actual "code":
-;;
-;;    "$." is a marker.
-;;    "$-" is a negative-escape sequence.
-;;
-;; Lambda-escaping handles these specially.  Whereas every "$" usually
-;; escapes to "$`", "$." remains "$." and "$-" becomes "$".
-;;
 ;; Lambda Values, Captures, and Lambda-escaping
 ;; ----------------
 ;;
-;; Code that lies within an anonymous function will be "lambda-escaped" for
-;; inclusion in the body of a parent function.  Consider this example:
+;; Function code will be *expanded*, so any literals including "$" are
+;; replaced with "$`" so that after one round of expansion they evaulate
+;; to "$".  (The SCAM runtime defines the variable "`" as "$".)
 ;;
-;;   (define f (lambda () (lambda () (lambda (a) (IConcat "$" a)))))
-;;   f  -->  "$```$``1"
-;;   (((f)) "A")   -->  "$A"
+;;   (define (f x) (.. "$" x))
+;;   -->  f = $`$1
 ;;
-;; Here, the code generated for the innermost lambda, "$`$1", was escaped
-;; twice to yield the value of `f`, because it had to survive two rounds of
-;; expansion before being executed.
+;; When function code expands to an anonymous function, two levels of
+;; escaping are necessary. Consider:
 ;;
-;; Now consider this:
+;;   (define (f x) (lambda (y) "$")
+;;   -->  f = $``
 ;;
-;;   (define f (lambda (c) (lambda (b) (lambda (a) (concat "$" a b c)))))
-;;   (((f "C") "B") "A")  -->   "$ABC"
+;; When there is a *capture*, the runtime function `^E` is used to encode
+;; that captured value as part of the anonymous function:
 ;;
-;; The innermost lambda's IL node looks like this:
+;;   (define (f x) (lambda (y) (.. "$" y x)))
+;;   -->  $``$`1$(call ^E,$1)
 ;;
-;;   (ILambda (IConcat (IString "$") (ILocal 1 0) (ILocal 1 1) (ILocal 1 2)))
+;; Note that the value of `x` results in the code `$(call ^E,$1)`.  The steps
+;; can be summarized as:
 ;;
-;; The `IConcat` node compiles to:
+;;           IL             (c1 IL)           (c1-Lambda (c1 IL)
+;;   "$" = (IString "$")    $`                $``
+;;    y  = (IArg 1 ".")     $1                $`1
+;;    x  = (IArg 1 "..")    $-(call ^E,$-1)   $(call ^E,$1)
 ;;
-;;   "$`$1$-(call ^E,$-1)$--(call ^E,$--1,`)"
+;; Lambda-escaping performs the following:
 ;;
-;; When evaluated in Make, "$`" expands to "$", and "$1" expands the
-;; innermost local variable value.  The other local variables are
-;; *captures*.  Their numeric variables (e..g "$1") are not accessible when
-;; the innermost lambda executes ... instead, they must have been expanded
-;; earlier when the corresponding ancestor executed.  But the ancestor's
-;; code cannot be generated until after the nested lambda has been compiled.
-;; For this, we have a notion of "negative" escaping.  We can use "$-",
-;; which after a round of escaping, yields a "bare", un-escaped "$".
-;;
-;; The sequence "$-(call ^E,$-1)" will escape to "$(call ^E,$1)", so when
-;; the parent function executes its "$1" argument will be embedded in the
-;; lambda expression.  `^E` escapes the value at run-time, since it must
-;; survive a round of expansion (when the lambda expression is evaluated).
-;; For 'c' -- (ILocal 1 2) -- an extra "`" argument is passed to `^E` to
-;; indicate that the run-time expansion must survive an additional round of
-;; expansion, since the value will be captured in a lambda expression that
-;; is two levels down.
-;;
-;; The `IConcat` code is then expanded to produce the value of the innermost
-;; Lambda -- which constitutes the the *body* of the middle Lambda:
-;;
-;;   "$``$`1$(call ^E,$1)$-(call ^E,$-1,`))"
-;;
-;; This is then escaped to obtain the body of the outer Lambda:
-;;
-;;   "$```$``1$`(call ^E,$`1)$(call ^E,$1,`))"
-;;
-;; Now we have the *value* of `f`, although compiling the outer Lambda
-;; proceeds to escape this once more, producing the compiled form of the
-;; body of `f` (code = escaped value).
-;;
-;;                     f  -->  "$```$``1$`(call ^E,$`1)$(call ^E,$1,`))"
-;;               (f "C")  -->  "$``$`1$(call ^E,$1)C"
-;;         ((f "C") "B")  -->  ("$``$`1$(call ^E,$1)C" "B")
-;;                        -->  "$`$1BC"
-;;   (((f "C") "B") "A")  -->  ("$`$1BC" "A")
-;;                        -->  "$ABC"
+;;    "$." -> "$."  (marker)
+;;    "$-" -> "$"   (negative-escape)
+;;    "$"  -> "$`"  (other instances of "$")
 
 
 ;; "FILE" or "FILE:LINE" as given by POS and current file.
@@ -112,7 +67,7 @@
 (define (c1-Where pos)
   (define `lnum
     (get-subject-line pos *compile-subject*))
-  (escape (concat *compile-file* (if pos (concat ":" lnum)))))
+  (escape (.. *compile-file* (if pos (.. ":" lnum)))))
 
 
 ;; Lambda-escape CODE
@@ -139,7 +94,7 @@
 ;; Construct a crumb.
 ;;
 (define (crumb key value)
-  (concat "$.{" (crumb-encode {=key: value}) "$.}"))
+  (.. "$.{" (crumb-encode {=key: value}) "$.}"))
 
 
 ;; Extract crumbs.  Returns { code: CODE, errors: ERRORS }.
@@ -147,8 +102,8 @@
 (define `(crumb-extract code)
   (let ((dc (subst "$.{" " $.{" "$.}" " " [code])))
     (append {code: (concat-vec (filter-out "$.{%" dc))}
-            (dict-collate (foreach w (filtersub "$.{%" "%" dc)
-                                   (crumb-decode (promote w)))))))
+            (dict-collate (foreach (w (filtersub "$.{%" "%" dc))
+                            (crumb-decode (promote w)))))))
 
 
 ;; Construct a node that expands NODE but returns nil.
@@ -165,8 +120,8 @@
 
 
 (define `one-char-names
-  (concat "a b c d e f g h i j k l m n o p q r s t u v w x y z "
-          "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z _"))
+  (._. "a b c d e f g h i j k l m n o p q r s t u v w x y z"
+       "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z _"))
 
 
 (declare (c1 node))
@@ -180,8 +135,9 @@
     ((ICall _ _)    1)
     ((IVar _)       1)
     ((IBuiltin _ _) 1)
+    ((IFor _ _ _)   1)
     ((IFuncall _)   1)
-    ((ILocal _ _)   1)))
+    ((IArg _ _)   1)))
 
 
 (define (c1-arg node)
@@ -201,42 +157,37 @@
 
 ;; c1-vec: compile multiple expressions
 (define (c1-vec args delim quotefn)
-  (concat-for a args delim
-              (call quotefn a)))
+  (concat-for (a args delim)
+    (native-call quotefn a)))
 
 
 (define (c1-Error node)
   (crumb "errors"
          (case node
            ((PError pos msg) node)
-           (else (PError 0 (concat "internal:bad IL: " node))))))
-
-
-;; Construct an IL node that evaluates to a vector.  `nodes` is a vector of
-;; IL nodes containing the item values.
-;;
-(define (il-vector nodes)
-  (il-concat (subst " " (concat " " [(IString " ")] " ")
-                    (for n nodes (il-demote n)))))
+           (else (PError 0 (.. "internal:bad IL: " node))))))
 
 
 ;; Call built-in function
 (define (c1-Builtin name args)
   ;; (demote <builtin>) == <builtin> for all builtins
-  (concat "$(" name
-          " " ; this space is necessary even when there are no arguments
-          (protect-ltrim (c1-vec args ","
-                              (if (filter "and or" name)
-                                  (native-name c1-arg-trim)
-                                  (native-name c1-arg))))
-          ")"))
+  (.. "$("
+      (if (filter-out "=" name)
+          ;; this space is necessary even when there are no arguments
+          (.. name " "))
+      (protect-ltrim (c1-vec args ","
+                             (if (filter "and or" name)
+                                 (native-name c1-arg-trim)
+                                 (native-name c1-arg))))
+      ")"))
+
 
 ;; Compile an array of arguments (IL nodes) into at most 9 positional arguments
 ;;
 (define (c1-args9 nodes)
   (if (word 9 nodes)
-      (concat (c1-vec (wordlist 1 8 nodes) "," (native-name c1-arg))
-              (concat "," (protect-arg (c1 (il-vector (nth-rest 9 nodes))))))
+      (.. (c1-vec (wordlist 1 8 nodes) "," (native-name c1-arg))
+          "," (protect-arg (c1 (il-vector (nth-rest 9 nodes)))))
       (c1-vec nodes "," (native-name c1-arg))))
 
 
@@ -245,58 +196,89 @@
 (define (c1-Call name args)
   (define `ename (protect-ltrim (escape name)))
 
-  (concat "$(call " ename (if args ",") (c1-args9 args) ")"))
+  (.. "$(call " ename (if args ",") (c1-args9 args) ")"))
 
 
-;; Repeat WORDS (B - A + 1) times.
-;; Note: A and B must be >= 1.
+(define (i-8 n)
+  (words (nth-rest 9 (repeat-words ". . . ." n))))
+
+
+(define (c1-ugly-arg ndx ups)
+  ;; Return one copy of STR per dot in UPS, after subtracting SUB from UPS.
+  (define `(ups-repeat str sub)
+    (subst (.. "<" sub) nil
+           "." str
+           (.. "<" ups)))
+
+  (define `argval
+    (cond
+     ((filter ndx "1 2 3 4 5 6 7 8 ;")
+      (.. "$" ndx))
+
+     ((filter ";%" ndx)
+      (.. "$(" ndx ")"))
+
+     ((findstring "+" ndx)
+      ;; "rest" argument
+      (if (filter ndx "1+ 2+ 3+ 4+ 5+ 6+ 7+ 8+")
+          (.. "$(foreach N," (subst "+" nil ndx) ",$(^v))")
+          (if (filter "9+" ndx)
+              "$9"
+              (.. "$(wordlist " (i-8 (subst "+" nil ndx)) ",99999999,$9)"))))
+     (else
+      (.. "$(call ^n," (i-8 ndx) ",$9)"))))
+
+
+  (define `e-level
+    (filter "%`" (.. "," (ups-repeat "`" ".."))))
+
+  (subst "%" argval
+         "$" (.. "$" (ups-repeat "-" "."))
+         (if (filter "." ups)
+             ;; argument of immediately enclosing function
+             "%"
+             ;; capture
+             (.. "$(call ^E,%" e-level ")"))))
+
+
+;; Local variable
 ;;
-(define (make-list a b words)
-  (if (word b words)
-      (subst " " "" (wordlist a b words))
-      (make-list a b (concat words " " words " " words))))
-
-
-;; Local variable  (level 0 = current)
-;;
-(define (c1-Local ndx level)
-  (if (filter-out 0 level)
-      ;; ups is non-zero, non-nil
-      (subst "-" (make-list 1 level "-")
-             ",)" ")"
-             (concat "$-(call ^E,$-" ndx "," (make-list 2 level "`") ")"))
-      (concat "$" ndx)))
+(define `(c1-IArg ndx ups)
+  (or
+   ;; make common and simple case fast
+   (if (filter "." ups)
+       (addprefix "$" (filter ndx "1 2 3 4 5 6 7 8 ;")))
+   (c1-ugly-arg ndx ups)))
 
 
 ;; Call lambda value
-(define (c1-Funcall nodes)
-  (define `func (first nodes))
-  (define `args (rest nodes))
+(define (c1-Funcall [func ...args])
   (define `fnval (protect-arg (c1 func)))
   (define `commas
-    (subst " " "" (or (wordlist (words (concat "x" args)) 9
+    (subst " " "" (or (wordlist (words (.. "x" args)) 9
                                 ", , , , , , , , ,")
                       ",")))
 
-  (concat "$(call ^Y," (c1-args9 args) commas fnval ")"))
+  (.. "$(call ^Y," (c1-args9 args) commas fnval ")"))
 
 
 ;; Block: evaluate all nodes and return value of last node
 (define (c1-Block nodes)
   (if (word 2 nodes)
-      (concat "$(and " (c1-vec nodes "1," (native-name c1-arg)) ")")
+      (.. "$(and " (c1-vec nodes "1," (native-name c1-arg)) ")")
       (if nodes
           (c1 (first nodes)))))
 
 
 (define (c1-Var name)
-  (concat "$" (or (filter one-char-names name)
-                  (concat "(" (escape name) ")"))))
+  (.. "$" (or (filter one-char-names name)
+              (.. "(" (escape name) ")"))))
+
 
 (define (c1 node)
   (case node
     ((IString value) (escape value))
-    ((ILocal ndx ups) (c1-Local ndx ups))
+    ((IArg ndx ups) (c1-IArg ndx ups))
     ((ICall name args) (c1-Call name args))
     ((IVar name) (c1-Var name))
     ((IConcat nodes) (c1-vec nodes "" (native-name c1)))
@@ -304,55 +286,71 @@
     ((IBlock nodes) (c1-Block nodes))
     ((IFuncall nodes) (c1-Funcall nodes))
     ((IBuiltin name args) (c1-Builtin name args))
+    ((IFor name list body) (c1-Builtin "foreach" [(IString name) list body]))
     ((IWhere pos) (c1-Where pos))
     ((ICrumb key value) (crumb key value))
     ((IEnv _ node) (c1 node))
-    (else (c1-Error node))))
+    (else
+     (if node
+         (c1-Error node)))))
 
 
 ;;--------------------------------------------------------------
 ;; File Syntax
+;;
+;; Newlines may appear in function syntax but not in file syntax
+;; assignments or expressions.  (But "define ... endef" can retain
+;; them.)  We call protect-expr to encode newlines in expressions, and
+;; protect-lhs and protect-rhs for assingments.
 
 (declare (c1-file node))
 
-;; construct code for simple assignment
+
+;; Embed a function-syntax expression in file syntax
 ;;
-;; After "LHS := RHS", $(LHS) or $(value LHS) == RHS.
-;;
-(define (c1-file-set lhs rhs)
-  (concat (protect-lhs lhs) " := " (protect-rhs rhs) "\n"))
+(define `(c1-file-expr expr)
+  (.. (protect-expr expr) "\n"))
 
 
-;; construct code for recursive assignment
+;; Construct a file-syntax assignment.
 ;;
 ;; After "LHS = RHS", $(value LHS) == RHS
 ;;
-(define (c1-file-fset lhs rhs)
+(define (c1-file-set lhs rhs ?is-simple)
   (define `(unescape str)
     (subst "$`" "$" str))
 
-  (if (or (findstring "$" (subst "$`" "" rhs))
-          (findstring "$`." rhs))
-      ;; RHS not constant (has un-escaped "$"), or would contain "$."
-      (concat "$(call " "^fset" "," (protect-arg lhs) "," (protect-arg rhs) ")\n")
-      (if (or (findstring "#" rhs)
-              (findstring "\n" rhs)
-              ;; leading whitespace?
-              (filter "~%" (subst "\t" "~" " " "~" rhs)))
+  (cond
+   (is-simple
+    (.. (protect-lhs lhs) " := " (protect-rhs rhs) "\n"))
 
-          ;; Use 'define ... endef' so that $(value F) will be *identical*
-          ;; to RHS almost always.
-          (concat "define " (protect-lhs lhs) "\n"
-                  (protect-define (unescape rhs))
-                  "\nendef\n")
-          (concat (protect-lhs lhs) " = " (unescape (protect-rhs rhs)) "\n"))))
+   ((or (findstring "$" (subst "$`" "" rhs))
+        (findstring "$`." rhs))
+    ;; RHS is non-const (has un-escaped "$"), or would contain "$."
+    (c1-file-expr
+     (.. "$(call ^fset," (protect-arg lhs) "," (protect-arg rhs) ")")))
+
+   ;; RHS is const
+   ((or (findstring "#" rhs)
+        (findstring "\n" rhs)
+        ;; leading whitespace?
+        (filter "~%" (subst "\t" "~" " " "~" rhs)))
+
+    ;; Use 'define ... endef' so that $(value F) will be *identical*
+    ;; to RHS almost always.
+    (.. "define " (protect-lhs lhs) "\n"
+        (protect-define (unescape rhs))
+        "\nendef\n"))
+
+   (else
+    (.. (protect-lhs lhs) " = " (unescape (protect-rhs rhs)) "\n"))))
 
 
 ;; Compile a vector of expressions to file syntax.
 ;;
-(define (c1-file* nodes)
-  (concat-for node nodes ""
-              (c1-file node)))
+(define `(c1-file* nodes)
+  (concat-for (node nodes "")
+    (c1-file node)))
 
 
 ;; Compile a node to file syntax.
@@ -363,26 +361,24 @@
 
      ;; Normalize (IBuiltin "call" (IString S)) to (ICall S ...).
      ;; Compile (IBuiltin "eval" (IString "...")) as "...\n"
-     ((IBuiltin name args)
-      (case (first args)
+     ((IBuiltin name [arg1 ...other-args])
+      (case arg1
         ((IString value)
          (if (filter "eval" name)
-             (concat value "\n")
+             (.. value "\n")
              (if (filter "call" name)
-                 (c1-file (ICall value (rest args))))))))
+                 (c1-file (ICall value other-args)))))))
 
      ;; Handle assignments using "a = b" vs. "$(call ^fset,a,b)"
      ((ICall name args)
-      (if (not (filter-out [NoOp] (word 3 args)))
-          (if (filter "^set" name)
-              (c1-file-set (c1 (nth 1 args)) (c1 (nth 2 args)))
-              (if (filter "^fset" name)
-                  (c1-file-fset (c1 (nth 1 args)) (c1 (nth 2 args)))))))
+      (define `[var value] args)
+      (if (filter "^set:2 ^fset:2" (.. name ":" (words args)))
+          (c1-file-set (c1 var) (c1 value) (filter "^set" name))))
 
      ;; Compile block members as also in file scope
      ((IBlock nodes) (c1-file* nodes)))
 
-   (concat (protect-expr (c1 (voidify node))) "\n")))
+   (c1-file-expr (c1 (voidify node)))))
 
 
 ;; Compile a vector of IL nodes.

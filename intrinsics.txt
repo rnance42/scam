@@ -34,21 +34,23 @@
 (declare (addprefix prefix list) &public)
 
 
-;; Add SUFFIX to the end of each word in PATHS.
+;; Add SUFFIX to the end of each word in LIST.
 ;;
-(declare (addsuffix suffix paths) &public)
+(declare (addsuffix suffix list) &public)
 
 
 ;; Remove the file extension from each word in PATHS.
 ;;
+;; See also: `path-basename`
+;;
 (declare (basename paths) &public)
 
 
-;; Get the directory of each file in PATHS.
+;; Get the directory of each file path in word list PATHS.
 ;;
 ;;     (dir "a/b c")  -->  "a/ ./"
 ;;
-;; See also `notdir`.
+;; See also: `notdir`, `path-dir`.
 ;;
 (declare (dir paths) &public)
 
@@ -85,11 +87,11 @@
 (declare (lastword list) &public)
 
 
-;; Return the filename portion of each path in PATHS.
+;; Return the filename portion of each path in word list PATHS.
 ;;
 ;;     (notdir "a/b c")  -->  "b c"
 ;;
-;; See also `dir`.
+;; See also: `dir`, `path-notdir`.
 ;;
 (declare (notdir paths) &public)
 
@@ -127,7 +129,12 @@
 (declare (suffix paths) &public)
 
 
-;; Get files that match PATTERNS.  Patterns is a list of glob expressions.
+;; Get files that match PATTERNS.  Patterns are delimited by whitespace
+;; characters, except that a whitespace character preceded by a backslash
+;; character will be treated as literal.
+;;
+;; All matches are returned as a word list; whitespace characters within a
+;; matching file name are *not* escaped.  (Good luck with that.)
 ;;
 (declare (wildcard patterns) &public)
 
@@ -241,22 +248,33 @@
 ;; of expressions) once for each word, and constructs a new word list from the
 ;; results of each evaluation.
 ;;
-;; Each word is bound to the name `VAR` while `BODY` is evaluated.
+;; `BODY` is evaluated in the scope of variables named in TARGET, which can
+;; be either a symbol or a [destructuring
+;; target](reference.md#destructuring).
 ;;
-;;     > (foreach x "1 2 3" (1+ x))
+;;     > (foreach (x "1 2 3") (1+ x))
 ;;     "2 3 4"
 ;;
-(declare (foreach var list body) &public)
-
-
-;; `for` iterates over items in a vector, evaluating BODY for with VAR bound to
-;; an item, constructing a new vector with the results of BODY. Example:
+;; `DELIM` specifies the separator between list elements.  This defaults to
+;; a single space when `DELIM` is absent.  When it is present and evaluates
+;; to `nil`, all element results are concatenated.
 ;;
-;;     > (for x [[1 2] [3 4]]
-;;     +     (reverse x))
+(declare (foreach (target list ?delim) ...body) &public)
+
+
+;; `for` iterates over items in a vector, constructing a new vector.
+;;
+;; `BODY` is evaluated in the scope of the variables named in TARGET, which
+;; can be either a symbol or a [destructuring target
+;; ](reference.md#destructuring).
+;;
+;; Example:
+;;
+;;     > (for (x [[1 2] [3 4]])
+;;     +    (reverse x))
 ;;     [[2 1] [4 3]]
 ;;
-(declare (for var vector body) &public)
+(declare (for (target vector) ...body) &public)
 
 
 ;; `append-for` is similar to `for` but it appends together all of the (vector)
@@ -270,15 +288,17 @@
 ;;     +    (if (> x 3) [x]))
 ;;     "7 5"
 ;;
-(declare (append-for var vector body) &public)
+(declare (append-for (target vector) ...body) &public)
 
 
 ;; `concat-for` is similar to `for` but it concatenates the values of BODY.
+;; If `DELIM` is not present in the source, then it defaults to a single
+;; space.
 ;;
-;;     > (concat-for x [1 2 3] ";" (wordlist 1 x "a b c"))
+;;     > (concat-for (x [1 2 3] ";") (wordlist 1 x "a b c"))
 ;;     "a;a b;a b c"
 ;;
-(declare (concat-for var vector delim body) &public)
+(declare (concat-for (target vector ?delim) ...body) &public)
 
 
 ;; Terminate execution of the program with a non-zero status code, writing
@@ -295,42 +315,41 @@
 
 
 ;; The `require` special form provides access to functionality defined in
-;; other modules.  It performs two actions:
+;; other modules.  When evaluated, it will load and execute the module
+;; (unless it has already been required elsewhere in the program.)  Symbols
+;; that have been declared as `&public` in the top-level of the required
+;; module are "imported" into the current environment, making those symbols
+;; visible to expressions that follow the `require` form, up to the end of
+;; the enclosing block.
 ;;
-;;  1. It ensures that the module has been executed.  If the module has
-;;     already been loaded, it does nothing.  Otherwise, it executes the
-;;     module.  (This occurs at run time.)
-;;
-;;  2. It imports symbols exported by the module.  Symbols declared
-;;     `&public` within the module are imported into the environment of the
-;;     caller of `require`.  (This occurs at compile time.)
-;;
-;; The `&private` flag is intended for use by unit test modules.  When present,
-;; private symbols will be imported in addition to `&public` ones, and the
-;; qualification step will not be required.  (See "qualification", below.)
+;; `(require MODULE &private)` is intended for use by unit test modules.
+;; This will import all symbols defined in the top-level of the required
+;; module (not just the `&public` ones).  Additionally, the qualification
+;; step will not be required.  (See "qualification", below.)
 ;;
 ;; When `MODULE` is one of the [standard library names](#libraries), the
 ;; standard library will be supplied by the compiler.  Otherwise, `MODULE`
-;; must end in `".scm"` and names SCAM source file.  If it is a relative
+;; must end in `.scm` and identify as SCAM source file.  If it is a relative
 ;; path, it is treated as relative to the directory containing the requiring
 ;; file.  If no such file exists, the directories listed in `SCAM_LIBPATH`
 ;; (colon-delimited) are tried, in order, until a matching file is found.
 ;;
 ;; When `MODULE` identifies a source file, that source file will be compiled
-;; to determine its exports before compilation can continue.  In turn,
-;; modules required by `MODULE` will also have to be compiled in order to
-;; build `MODULE`, and so on.  Compilation results are
+;; to determine its exports before compilation of the requiring module can
+;; continue.  In turn, modules required by `MODULE` will also have to be
+;; compiled in order to build `MODULE`, and so on.  Compilation results are
 ;; [cached](reference.md#cached-results) to avoid exponential build times.
 ;;
-;; **Qualification:** Each module can be accompanied by a qualification test: a
-;; module with the same name except for an added `-q` before the extension.
-;; For example, `foo-q.scm` is the qualification test for `foo.scm`.  When a
-;; module is required, its qualification test (if present) will be built and
-;; executed before compilation of the requiring module continues.  If the
-;; qualification test terminates with a non-zero exit code, it is considered a
-;; test failure and compilation stops.  (Note that qualification test files
-;; must use the `&private` flag when requiring the module they test in order to
-;; avoid a dependency loop.)
+;; **Qualification:** Each module source file may be accompanied by a
+;; qualification test: a source file whose name is determined by adding `-q`
+;; prior to the `.scm` extension.  For example, `foo-q.scm` is the
+;; qualification test for `foo.scm`.  When a module is required, its
+;; qualification test (if present) will be built and executed before
+;; compilation of the requiring module continues.  If the qualification test
+;; terminates with a non-zero exit code, it is considered a test failure and
+;; compilation stops.  (Note that qualification test files must use the
+;; `&private` flag when requiring the module they test in order to avoid a
+;; dependency loop.)
 ;;
 (declare (require module &private?) &public)
 
@@ -339,20 +358,22 @@
 ;;
 ;; This special form takes several forms:
 ;;
-;;     (declare NAME FLAG... VALUE)            ; global data variable
-;;     (declare (NAME ARG...) FLAG... BODY)    ; global function variable
-;;     (declare `NAME EXPR)                    ; symbol macro
-;;     (declare `(NAME ARG...) FLAG... BODY)   ; compound macro
+;;     (define NAME FLAG... VALUE)              ; global data variable
+;;     (define (NAME PARAM...) FLAG... BODY)    ; global function variable
+;;     (define `NAME EXPR)                      ; symbol macro
+;;     (define `(NAME PARAM...) FLAG... BODY)   ; compound macro
 ;;
 ;; The `define` special form adds a name to the environment and associates
 ;; it with a definition.  The defined name will be visible to subsequent
 ;; expressions in the same block, and the definition supersedes any
 ;; previous definitions associated with the same name.
 ;;
-;; The `&public` flag may be included in `FLAG...`.  This indicates that the
-;; symbol should be visible outside of the file in which it is declared.
+;; See `lambda` for descriptions of the `PARAM` syntax.
 ;;
-(declare (declare ...forms) &public)
+;; The `&public` flag may be included in `FLAG...`.  This indicates that the
+;; symbol should be visible outside of the file in which it is defined.
+;;
+(declare (define ...forms) &public)
 
 
 ;; Declare a function, variable, or macro.
@@ -360,7 +381,7 @@
 ;; This special form takes two forms:
 ;;
 ;;     (declare NAME FLAG...)             ; global data variable
-;;     (declare (NAME ARG...) FLAG...)    ; global function variable
+;;     (declare (NAME PARAM...) FLAG...)    ; global function variable
 ;;
 ;; The `declare` special form declares a global variable without assigning
 ;; a value.  This is usually used to access non-SCAM functions, or when
@@ -377,10 +398,12 @@
 
 
 ;; This special form assigns names to values.  BINDINGS is a sequence of
-;; `(NAME VALUE)` pairs.  First, the VALUE expressions are evaluated.
-;; order.  Then BODY (a sequence of expressions) is evaluated in an
-;; environment in which each NAME is bound to its corresponding value.  The
-;; The value of the last expression in BODY is returned.
+;; `(TARGET VALUE)` pairs.  Each TARGET can be either a symbol or a
+;; [destructuring target](reference.md#destructuring).
+;;
+;; BODY (a sequence of expressions) is evaluated in an environment in which
+;; every name in each TARGET is bound to its corresponding value.  The
+;; value of the last expression in BODY is returned.
 ;;
 ;; `let` is implemented in terms of `lambda`, and is equivalent to:
 ;;
@@ -418,6 +441,13 @@
 
 ;; This form modifies the value of some number of global variables *during
 ;; the execution of BODY*. Afterwards, the original values are restored.
+;; Note that, unlike `let` or `let&`, the variables must already be in
+;; scope.
+;;
+;; BINDINGS is a sequence of `(TARGET VALUE)` pairs.  Each TARGET can be
+;; either a symbol or a [destructuring target](reference.md#destructuring).
+;; Each name mentioned in TARGET must identify a previously declared global
+;; variable.
 ;;
 ;; This expression evaluates to the value of the last expression in BODY.
 ;;
@@ -433,12 +463,24 @@
 ;;
 ;; The `set` expression returns `RETVAL` (or "" if `RETVAL` is not provided).
 ;;
-(declare (set name value retval) &public)
+(declare (set name value ?retval) &public)
 
 
 ;; A `lambda` expression evaluates to a function value.
 ;;
-;; `...PARAMS` is zero or more symbols that name the formal arguments.
+;; `...PARAMS` is zero or more *targets* that name the formal arguments,
+;; followed by zero or more *optional* parameters and then perhaps one
+;; *rest* parameter.
+;;
+;; A target is a symbol (not beginning with `...` or `?`) or a
+;; [destructuring target](reference.md#destructuring).
+;;
+;; An optional parameter is a symbol that begins with `?`.  Optional
+;; parameters may be omitted by callers.
+;;
+;; A rest parameter is a symbol that begins with `...`.  Rest parameters
+;; capture, as a vector, all subsequent arguments passed to the function.
+;; Callers may omit any of the arguments captured by a rest parameter.
 ;;
 ;; `BODY` is a block of one or more expressions (see [`begin`](#begin) )
 ;; that will be executed when the function is called. The initial environment
@@ -448,9 +490,26 @@
 (declare (lambda (...params) body) &public)
 
 
-;; This special form concatenates all of its arguments.
+;; This special form is equivalent to `(if COND (begin ...BODY))`.
+;;
+(declare (when cond ...body) &public)
+
+
+;; This special form concatenates all of its arguments.  This is
+;; equivalent to `..`.
 ;;
 (declare (concat ...values) &public)
+
+
+;; This special form concatenates all of its arguments.
+;;
+(declare (.. ...values) &public)
+
+
+;; This special form concatenates all of its arguments, separating them with
+;; a single space character.
+;;
+(declare (._. ...values) &public)
 
 
 ;; This special form replaces substrings with replacement strings within the
@@ -460,11 +519,6 @@
 ;;     23
 ;;
 (declare (subst from to {from to}... value) &public)
-
-
-;; Construct a vector containing each argument.
-;;
-(declare (vector ...values) &public)
 
 
 ;; Concatenate all values and write them to `stdout`.
@@ -479,8 +533,19 @@
 (declare (current-env) &public)
 
 
-;; This special form evaluates to the file name and line number of where it was
-;; invoked, in this format:  `FILENAME:LINE`
+;; This special form evaluates to the current file name.  Ordinarily, this
+;; will refer to the location in the source file where the `(current-file)`
+;; call appears, but when it appears within a macro it refers to the
+;; location at which the macro was expanded.
+;;
+(declare (current-file) &public)
+
+
+;; This special form evaluates to `FILENAME:LINE:COL` describing the
+;; "current" position in the program.  Ordinarily, this will refer to the
+;; location in the source file where the `(current-file-line)` call appears,
+;; but when it appears within a macro it refers to the location at which the
+;; macro was expanded.
 ;;
 (declare (current-file-line) &public)
 
@@ -549,7 +614,10 @@
 ;; Add FUNC to a list of functions that will be run after `main` exits.
 ;; The earliest-registered functions will be called last.
 ;;
-(declare (at-exit func) &public)
+;; If UNIQUE is non-nil and FUNC has already been registered, it will not be
+;; added again.
+;;
+(declare (at-exit func ?unique) &public)
 
 
 ;; Evaluate EXPR with tracing activated according to SPEC.
@@ -598,6 +666,8 @@
 ;; the program.  This can be used to identify and quantify hotspots in a
 ;; program.
 ;;
+;; See the [reference manual](reference.md#debugging) for examples.
+;;
 (declare `(tracing spec expr) &public)
 
 
@@ -608,7 +678,7 @@
 ;; The return value is a list of the names of the instrumented functions,
 ;; which can be passed to `untrace` later.
 ;;
-(declare (trace specs) &public)
+(declare (trace spec) &public)
 
 
 ;; Remove instrumentation from functions listed in NAMES, or functions
@@ -633,20 +703,59 @@
 ;;
 
 
-;; Evaluate STR as GNU Make source.
-;;
-(declare (eval str) &internal)
-
-
-;; Get the "native name" of a SCAM variable or function.
-;;
-(declare (native-name var-name) &internal)
-
-
 ;; Call function variable whose native name is NAME with elements of vector
 ;; ARGV as arguments.
 ;;
 (declare (name-apply func-name argv) &internal)
+
+
+;; Return 1 if native variable VAR-NAME has been assigned a value (as a data
+;; or function variable), or `nil` if unassigned.
+;;
+(declare `(native-bound? var-name) &internal)
+
+
+;; Call a function, given its native name.
+;;
+(declare (native-call var-name ...args) &internal)
+
+
+;; Evaluate STR as GNU Make source.
+;;
+(declare (native-eval str) &internal)
+
+
+;; Describe the flavor of native variable VAR-NAME.  One of:
+;;
+;;  * `"simple"`
+;;  * `"recursive"`
+;;  * `"undefined"`
+;;
+(declare (native-flavor var-name) &internal)
+
+
+;; Get the "native name" of a SCAM global variable, function, or a built-in
+;; function.
+;;
+(declare (native-name var-name) &internal)
+
+
+;; Describe the GNU make origin of native variable VAR-NAME.  Origin values
+;; include: `"undefined"`, `"file"`, `"command line"`, `"automatic"`, ... .
+;; See GNU Make docs for more.
+;;
+(declare (native-origin var-name) &internal)
+
+
+;; Return the value of native variable VAR-NAME.
+;;
+(declare (native-value var-name) &internal)
+
+
+;; Evaluate a GNU Make variable.  Unlike `value`, native-var will trigger
+;; expansion of recursive variables.
+;;
+(declare (native-var var-name) &internal)
 
 
 ;; Assign VALUE to the native variable VAR-NAME as a data variable.  This
@@ -659,41 +768,14 @@
 ;; This will replace any data or function variable binding for FUNC-NAME.
 ;;
 ;; Function variables cannot store values with complete fidelity -- the
-;; value read back using `(value FUNC-NAME)` may not be exactly the same.
-;; However, it is guaranteed that when a SCAM function value is assigned to
-;; a function, the variable's *behavior* (when called as a function) will be
-;; as expected; furthermore, the value read back will be functionally
-;; equivalent to the original SCAM function.
+;; value read back using `(native-value FUNC-NAME)` may not be exactly the
+;; same.  However, it is guaranteed that when a SCAM function value is
+;; assigned to a function, the variable's *behavior* (when called as a
+;; function) will be as expected; furthermore, the value read back will be
+;; functionally equivalent to the original SCAM function.
 ;;
 ;; Function names cannot begin or end in spaces, and other limitations may
 ;; apply depending on the version of Make, but any valid SCAM symbol will
 ;; work.
 ;;
 (declare (set-native-fn func-name value ?retval) &internal)
-
-
-;; Return 1 if native variable VAR-NAME has been assigned a value (as a data
-;; or function variable), or `nil` if unassigned.
-;;
-(declare `(bound? var-name) &internal)
-
-
-;; Describe the flavor of native variable VAR-NAME.  One of:
-;;
-;;  * `"simple"`
-;;  * `"recursive"`
-;;  * `"undefined"`
-;;
-(declare (flavor var-name) &internal)
-
-
-;; Describe the GNU make origin of native variable VAR-NAME.  Origin values
-;; include: `"undefined"`, `"file"`, `"command line"`, `"automatic"`, ... .
-;; See GNU Make docs for more.
-;;
-(declare (origin var-name) &internal)
-
-
-;; Return the value of native variable VAR-NAME.
-;;
-(declare (value var-name) &internal)

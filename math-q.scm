@@ -27,9 +27,9 @@
 
 ;; non-integers?
 
-(foreach n ["-" "--1" " -1" "- 1" "0-1" "1-0" "?"]
-         (assert (non-integers? n "01"))
-         (assert (non-integers? "01" n)))
+(foreach (n ["-" "--1" " -1" "- 1" "0-1" "1-0" "?"])
+  (assert (non-integers? n "01"))
+  (assert (non-integers? "01" n)))
 (assert (not (non-integers? "-0" "01")))
 
 ;; non-naturals?
@@ -261,15 +261,14 @@
 
 ;; `binop` functions
 
-(foreach
-    op [+ - * // mod]
-    (expect NaN (+ NaN 1))
-    (expect NaN (+ nil 1))
-    (expect NaN (+ 1 nil))
-    (expect NaN (+ "-" 1))
-    (expect NaN (+ "--" 1))
-    (expect NaN (+ "- 0" 1))
-    (expect NaN (+ "1 " 1)))
+(foreach (op [+ - * // mod])
+  (expect NaN (+ NaN 1))
+  (expect NaN (+ nil 1))
+  (expect NaN (+ 1 nil))
+  (expect NaN (+ "-" 1))
+  (expect NaN (+ "--" 1))
+  (expect NaN (+ "- 0" 1))
+  (expect NaN (+ "1 " 1)))
 
 
 (expect 5 (+ 3 2))
@@ -345,15 +344,15 @@
 
 (define decimals
   (append naturals
-          (foreach s ".1 .9999 .0000001 .0000555531"
-                   (addsuffix s naturals))))
+          (foreach (s ".1 .9999 .0000001 .0000555531")
+            (addsuffix s naturals))))
 
 (define num-args
   (append 0
           decimals
           (addprefix "-" decimals)
-          (foreach e "e1 e-3 e5 e20 e-100"
-                   (addsuffix e [2 5.000001 9.9999999]))))
+          (foreach (e "e1 e-3 e5 e20 e-100")
+            (addsuffix e [2 5.000001 9.9999999]))))
 
 
 (define (num-eq? x y)
@@ -364,26 +363,24 @@
 ;; Validate arithmetic identities
 ;;
 (define (stress-test x-args y-args)
-  (foreach x x-args
-           (expect 1 (<= (floor x) x))
-           (expect 1 (>= (ceil x) x)))
+  (foreach (x x-args)
+    (expect 1 (<= (floor x) x))
+    (expect 1 (>= (ceil x) x)))
 
-  (foreach
-      x x-args
-      (print "x = " x)
-      (foreach
-          y (filter-out "0 -0" y-args)
+  (foreach (x x-args)
+    (print "x = " x)
+    (foreach (y (filter-out "0 -0" y-args))
 
-          (define `(check-eq a b)
-            (if (not (num-eq? a b))
-                (begin
-                  (print "x = " x ", y = " y)
-                  (expect a b))))
+      (define `(check-eq a b)
+        (if (not (num-eq? a b))
+            (begin
+              (print "x = " x ", y = " y)
+              (expect a b))))
 
-          (check-eq x (+ (- x y) y))
-          (check-eq x (+ (* y (// x y)) (mod x y)))
-          (check-eq x (/ (* x y) y 16))
-          nil)))
+      (check-eq x (+ (- x y) y))
+      (check-eq x (+ (* y (// x y)) (mod x y)))
+      (check-eq x (/ (* x y) y 16))
+      nil)))
 
 
 (define (main argv)
@@ -402,7 +399,7 @@
 ;; Increase/decrease precision PREC by N positions
 (define `(prec+ prec n)
   (if (filter "+% -%" prec)
-      (subst "+-" "-" (concat "+" (- (subst "+" nil prec) n)))
+      (subst "+-" "-" (.. "+" (- (subst "+" nil prec) n)))
       (max 1 (+ prec n))))
 
 
@@ -424,12 +421,14 @@
             (print "delta: " Δ " > " max-delta)
             (expect a b))))))
 
-;; (log X)
+;; (log X)  [and fp-log indirectly]
 
 (expect "NaN" (log nil))
 (expect "NaN" (log 0))
 (expect "NaN" (log -1))
 (expect 0 (log 1))
+(expect -0.0010005 (log 0.999 nil 5))
+(expect 0.0009995 (log 1.001 nil 4))
 (expect 2.302585092994046 (log 10))
 (expect 2302.585092994046 (log 1e1000))
 (expect 1.1 (log 3 nil 2))
@@ -462,7 +461,6 @@
 (expect± 0.12e-14 -0.23572233352106987386 (logx+ 0.79 14))
 (expect± 0.13e-13 -0.33855440282553749817 (logx+ 0.7128 13))
 (expect± 1e-15 0.593326845277734378803 (logx+ 1.81 14))
-(expect± 1e-15 -0.00999999999999994303038 (logx+ 1.010050167084168 14))
 (expect± 0.14e-8 1153.3594092564958 (logx+ 7.9e+500 12))
 
 ;; (log X BASE)
@@ -477,17 +475,17 @@
 (expect "NaN" (log -2 10))
 (expect 10 (log 1024 2))
 ;; PREC=DIGITS (with small result)
-(expect -4.3433574e-10 (log 1.00001 1e9999 8))  ;; -4.34335744019720658e-10
+(expect 4.3433574e-10 (log 1.00001 1e9999 8))  ;; 4.34335744019720658e-10
 ;; PREC=PLACE, big X, small BASE
-(expect -230029400.93 (log 1e999 1.00001 "-2"))  ;; -230029400.929444668
-(expect -200000000 (log 1e999 1.00001 "+8"))
+(expect 230029400.93 (log 1e999 1.00001 "-2"))  ;; 230029400.929444668
+(expect 200000000 (log 1e999 1.00001 "+8"))
 (expect 0 (log 1e999 1.00001 "+9"))
 ;; PREC=PLACE, small X, big BASE
-(expect -4.34e-10 (log 1.00001 1e9999 "-12"))    ;; -4.34335744019720658e-10
-(expect 0 (log 1.00001 1e9999 "+1"))    ;; -4.34335744019720658e-10
-(expect 985.33206962 (log 0.99 1.0000102 11))
-(expect 990 (log 0.99 1.0000102 "+1"))
-(expect 1000 (log 0.99 1.0000102 "+2"))
+(expect 4.34e-10 (log 1.00001 1e9999 "-12"))    ;; 4.34335744019720658e-10
+(expect 0 (log 1.00001 1e9999 "+1"))    ;; 4.34335744019720658e-10
+(expect -985.33206962 (log 0.99 1.0000102 11))
+(expect -990 (log 0.99 1.0000102 "+1"))
+(expect -1000 (log 0.99 1.0000102 "+2"))
 
 ;; exp
 
@@ -540,9 +538,9 @@
 ;; Validate handling of different ranges of sinc & cos
 (define ~π 3.14159)
 (define (validate-sincos fn pattern)
-  (for n (range 1 (words pattern))
-     (define `θ (* ~π (/ (- n 1) 6)))
-     (expect (fn θ -2) (nth n pattern))))
+  (for (n (range 1 (words pattern)))
+    (define `θ (* ~π (/ (- n 1) 6)))
+    (expect (fn θ -2) (nth n pattern))))
 
 (validate-sincos
  sin [0 0.5 0.87 1 0.87 0.5 0 -0.5 -0.87 -1 -0.87 -0.5 0 0.5 0.87 1])
